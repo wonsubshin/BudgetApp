@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Android build outputs
+android/app/build/
+android/.gradle/
+android/app/.cxx/
+
+# IDE / Editor
+.vscode/
+.superpowers/
+
+# Temporary files
+*.log
+.DS_Store

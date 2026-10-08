@@ -1,0 +1,52 @@
+import { getDb } from './db';
+import { Holiday } from '../types/budget';
+
+export const holidayDao = {
+  upsertHoliday(h: Holiday): void {
+    const db = getDb();
+    db.execute(
+      `INSERT INTO holidays (locdate, date_name, is_holiday, is_custom)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(locdate) DO UPDATE SET
+         date_name = excluded.date_name,
+         is_holiday = excluded.is_holiday,
+         is_custom = excluded.is_custom,
+         updated_at = CURRENT_TIMESTAMP;`,
+      [h.locdate, h.dateName, h.isHoliday ? 1 : 0, h.isCustom ? 1 : 0]
+    );
+  },
+
+  deleteCustomHoliday(locdate: string): void {
+    const db = getDb();
+    db.execute('DELETE FROM holidays WHERE locdate = ? AND is_custom = 1;', [locdate]);
+  },
+
+  getHolidaysByYear(yearStr: string): Holiday[] {
+    const db = getDb();
+    const result = db.execute(
+      'SELECT * FROM holidays WHERE locdate LIKE ? ORDER BY locdate ASC;',
+      [`${yearStr}%`]
+    );
+    const rows = result.rows?._array || [];
+    return rows.map((row: any) => ({
+      locdate: row.locdate,
+      dateName: row.date_name,
+      isHoliday: Boolean(row.is_holiday),
+      isCustom: Boolean(row.is_custom),
+      updatedAt: row.updated_at,
+    }));
+  },
+
+  isHoliday(dateStr: string): boolean {
+    const db = getDb();
+    const result = db.execute(
+      'SELECT is_holiday FROM holidays WHERE locdate = ? LIMIT 1;',
+      [dateStr]
+    );
+    const rows = result.rows?._array || [];
+    if (rows.length > 0) {
+      return Boolean(rows[0].is_holiday);
+    }
+    return false;
+  },
+};
