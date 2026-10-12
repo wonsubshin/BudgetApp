@@ -28,3 +28,16 @@ export const calculateWeeklyRemainingBudget = (
   const weeklyTarget = dailyBudget * 7;
   return weeklyTarget - weekTotalSpent;
 };
+
+export const formatNumberWithComma = (value: string | number): string => {
+  const cleanNumber = String(value).replace(/[^0-9]/g, '');
+  if (!cleanNumber) return '';
+  return parseInt(cleanNumber, 10).toLocaleString();
+};
+
+export const parseNumberFromComma = (formattedValue: string): number => {
+  const cleanNumber = String(formattedValue).replace(/[^0-9]/g, '');
+  if (!cleanNumber) return 0;
+  return parseInt(cleanNumber, 10);
+};
+

@@ -108,15 +108,13 @@ export const AppNavigator = () => {
             )}
           </Stack.Screen>
         ) : (
-          <>
-            <Stack.Screen name="MainTabs" component={MainTabContainer} />
-            <Stack.Screen
-              name="DailyDetail"
-              component={DailyDetailScreen}
-              options={{ headerShown: true, title: '일별 지출 상세' }}
-            />
-          </>
+          <Stack.Screen name="MainTabs" component={MainTabContainer} />
         )}
+        <Stack.Screen
+          name="DailyDetail"
+          component={DailyDetailScreen}
+          options={{ headerShown: true, title: '일별 지출 상세' }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

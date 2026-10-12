@@ -20,9 +20,10 @@ import { recurringDao } from '../database/recurringDao';
 import { holidayDao } from '../database/holidayDao';
 import { holidayService } from '../services/holidayService';
 import { RecurringRuleModal } from '../components/settings/RecurringRuleModal';
+import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
 export const SettingsScreen = () => {
-  const [budgetStr, setBudgetStr] = useState(String(getMonthlyBudget()));
+  const [budgetStr, setBudgetStr] = useState(formatNumberWithComma(getMonthlyBudget()));
   const [lastSync, setLastSync] = useState(getLastHolidaySync());
   const [isSyncing, setIsSyncing] = useState(false);
 
@@ -47,7 +48,7 @@ export const SettingsScreen = () => {
   }, [loadSettingsData]);
 
   const handleSaveBudget = () => {
-    const val = parseInt(budgetStr.replace(/[^0-9]/g, ''), 10);
+    const val = parseNumberFromComma(budgetStr);
     if (isNaN(val) || val <= 0) {
       Alert.alert('알림', '유효한 예산 금액을 입력해 주세요.');
       return;
@@ -130,7 +131,7 @@ export const SettingsScreen = () => {
             style={[styles.input, { flex: 1 }]}
             keyboardType="numeric"
             value={budgetStr}
-            onChangeText={setBudgetStr}
+            onChangeText={(text) => setBudgetStr(formatNumberWithComma(text))}
           />
           <TouchableOpacity style={styles.saveBtn} onPress={handleSaveBudget}>
             <Text style={styles.saveBtnText}>저장</Text>

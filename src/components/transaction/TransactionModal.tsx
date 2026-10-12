@@ -14,6 +14,7 @@ import {
   PaymentType,
   InstallmentType,
 } from '../../types/budget';
+import { formatNumberWithComma, parseNumberFromComma } from '../../utils/budgetUtils';
 
 interface TransactionModalProps {
   visible: boolean;
@@ -40,7 +41,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   useEffect(() => {
     if (initialData) {
       setCategoryType(initialData.categoryType);
-      setAmountStr(String(initialData.amount));
+      setAmountStr(formatNumberWithComma(initialData.amount));
       setMerchant(initialData.merchant);
       setPaymentType(initialData.paymentType);
       setInstallmentType(initialData.installmentType);
@@ -65,7 +66,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   };
 
   const handleSave = () => {
-    const amount = parseInt(amountStr.replace(/[^0-9]/g, ''), 10);
+    const amount = parseNumberFromComma(amountStr);
     if (isNaN(amount) || amount <= 0) {
       Alert.alert('알림', '유효한 금액을 입력해 주세요.');
       return;
@@ -155,7 +156,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             placeholder="0"
             keyboardType="numeric"
             value={amountStr}
-            onChangeText={setAmountStr}
+            onChangeText={(text) => setAmountStr(formatNumberWithComma(text))}
           />
 
           {/* 지불 유형 (카드 / 현금) */}

@@ -14,6 +14,7 @@ import {
   PaymentType,
   InstallmentType,
 } from '../../types/budget';
+import { formatNumberWithComma, parseNumberFromComma } from '../../utils/budgetUtils';
 
 interface RecurringRuleModalProps {
   visible: boolean;
@@ -39,7 +40,7 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
     if (initialData) {
       setDayStr(String(initialData.dayOfMonth));
       setCategoryType(initialData.categoryType);
-      setAmountStr(String(initialData.amount));
+      setAmountStr(formatNumberWithComma(initialData.amount));
       setMerchant(initialData.merchant);
       setPaymentType(initialData.paymentType);
       setInstallmentType(initialData.installmentType);
@@ -67,7 +68,7 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
       return;
     }
 
-    const amount = parseInt(amountStr.replace(/[^0-9]/g, ''), 10);
+    const amount = parseNumberFromComma(amountStr);
     if (isNaN(amount) || amount <= 0) {
       Alert.alert('알림', '유효한 금액을 입력해 주세요.');
       return;
@@ -161,10 +162,10 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
           <Text style={styles.label}>금액 (원)</Text>
           <TextInput
             style={styles.input}
-            placeholder="17000"
+            placeholder="17,000"
             keyboardType="numeric"
             value={amountStr}
-            onChangeText={setAmountStr}
+            onChangeText={(text) => setAmountStr(formatNumberWithComma(text))}
           />
 
           {/* 지불 유형 */}

@@ -13,6 +13,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { setNickname, setMonthlyBudget } from '../storage/mmkv';
+import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -22,7 +23,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
   onComplete,
 }) => {
   const [name, setName] = useState('');
-  const [budgetStr, setBudgetStr] = useState('1500000');
+  const [budgetStr, setBudgetStr] = useState('1,500,000');
 
   const nameInputRef = useRef<TextInput>(null);
   const budgetInputRef = useRef<TextInput>(null);
@@ -43,7 +44,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
       return;
     }
 
-    const parsedBudget = parseInt(budgetStr.replace(/[^0-9]/g, ''), 10);
+    const parsedBudget = parseNumberFromComma(budgetStr);
     if (isNaN(parsedBudget) || parsedBudget <= 0) {
       Alert.alert('알림', '유효한 한 달 예상 예산을 입력해 주세요.');
       budgetInputRef.current?.focus();
@@ -79,6 +80,10 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
               placeholderTextColor="#9E9E9E"
               value={name}
               onChangeText={setName}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="default"
+              textContentType="name"
               autoFocus={true}
               showSoftInputOnFocus={true}
               returnKeyType="next"
@@ -92,11 +97,11 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
             <TextInput
               ref={budgetInputRef}
               style={styles.input}
-              placeholder="1500000"
+              placeholder="1,500,000"
               placeholderTextColor="#9E9E9E"
               keyboardType="numeric"
               value={budgetStr}
-              onChangeText={setBudgetStr}
+              onChangeText={(text) => setBudgetStr(formatNumberWithComma(text))}
               showSoftInputOnFocus={true}
               returnKeyType="done"
               onSubmitEditing={handleSave}
