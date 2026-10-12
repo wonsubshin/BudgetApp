@@ -1,0 +1,59 @@
+buildscript {
+    ext {
+        buildToolsVersion = "34.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 34
+        targetSdkVersion = 34
+        ndkVersion = "25.1.8937393"
+        kotlinVersion = "1.9.24"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.2.1")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    }
+}
+
+plugins {
+    id("com.facebook.react.rootproject")
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url("$rootDir/../node_modules/react-native/android") }
+        maven { url("$rootDir/../node_modules/jsc-android/dist") }
+    }
+    configurations.all {
+        resolutionStrategy {
+            force "com.facebook.react:react-android:0.73.6"
+            force "com.facebook.react:hermes-android:0.73.6"
+        }
+    }
+}
+
+subprojects {
+    plugins.withId("com.android.library") {
+        android {
+            buildFeatures {
+                prefab true
+            }
+            defaultConfig {
+                ndk {
+                    abiFilters "arm64-v8a", "x86_64"
+                }
+                externalNativeBuild {
+                    cmake {
+                        arguments "-DANDROID_STL=c++_shared",
+                                  "-DREACT_NATIVE_DIR=${rootDir}/../node_modules/react-native",
+                                  "-DReactAndroid_DIR=${rootDir}/../node_modules/react-native/ReactAndroid/src/main/jni"
+                    }
+                }
+            }
+        }
+    }
+}

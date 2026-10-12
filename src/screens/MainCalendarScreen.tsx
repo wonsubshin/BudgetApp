@@ -63,10 +63,12 @@ LocaleConfig.defaultLocale = 'kr';
 
 interface MainCalendarScreenProps {
   onSelectDate: (dateStr: string) => void;
+  onOpenSettings?: () => void;
 }
 
 export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
   onSelectDate,
+  onOpenSettings,
 }) => {
   const [currentYearMonth, setCurrentYearMonth] = useState(
     dayjs().format('YYYY-MM')

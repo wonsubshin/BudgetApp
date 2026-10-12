@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { initDatabase } from '../database/db';
@@ -14,24 +15,61 @@ import { StatisticsScreen } from '../screens/StatisticsScreen';
 const Stack = createNativeStackNavigator();
 
 function MainTabContainer({ navigation }: any) {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<'CALENDAR' | 'STATS' | 'SETTINGS'>('CALENDAR');
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+      {/* Top Header Bar */}
+      <View style={styles.topHeader}>
+        <Text style={styles.topHeaderTitle}>
+          {activeTab === 'CALENDAR'
+            ? '📅 가계부 달력'
+            : activeTab === 'STATS'
+            ? '📊 지출 통계'
+            : '⚙️ 환경 설정'}
+        </Text>
+        {activeTab !== 'SETTINGS' ? (
+          <TouchableOpacity
+            style={styles.headerSettingBtn}
+            onPress={() => setActiveTab('SETTINGS')}
+          >
+            <Text style={styles.headerSettingText}>⚙️ 설정</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.headerSettingBtn}
+            onPress={() => setActiveTab('CALENDAR')}
+          >
+            <Text style={styles.headerSettingText}>✕ 닫기</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Screen Content */}
       <View style={{ flex: 1 }}>
         {activeTab === 'CALENDAR' && (
           <MainCalendarScreen
             onSelectDate={(dateStr: string) =>
               navigation.navigate('DailyDetail', { dateStr })
             }
+            onOpenSettings={() => setActiveTab('SETTINGS')}
           />
         )}
         {activeTab === 'STATS' && <StatisticsScreen />}
         {activeTab === 'SETTINGS' && <SettingsScreen />}
       </View>
 
-      {/* Bottom Tab Bar */}
-      <View style={styles.tabBar}>
+      {/* Bottom Tab Bar with Safe Area Bottom Padding */}
+      <View
+        style={[
+          styles.tabBar,
+          {
+            paddingBottom: Math.max(insets.bottom, 6),
+            height: 56 + Math.max(insets.bottom, 6),
+          },
+        ]}
+      >
         <TouchableOpacity
           style={styles.tabItem}
           onPress={() => setActiveTab('CALENDAR')}
@@ -115,18 +153,49 @@ export const AppNavigator = () => {
           component={DailyDetailScreen}
           options={{ headerShown: true, title: '일별 지출 상세' }}
         />
+        <Stack.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{ headerShown: true, title: '⚙️ 환경 설정' }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );
 };
 
 const styles = StyleSheet.create({
+  topHeader: {
+    height: 52,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  topHeaderTitle: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#212121',
+  },
+  headerSettingBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 16,
+  },
+  headerSettingText: {
+    fontSize: 13,
+    color: '#333333',
+    fontWeight: '600',
+  },
   tabBar: {
     flexDirection: 'row',
-    height: 56,
     borderTopWidth: 1,
     borderTopColor: '#E0E0E0',
     backgroundColor: '#FFFFFF',
+    elevation: 8,
   },
   tabItem: {
     flex: 1,
@@ -134,7 +203,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#757575',
     fontWeight: '500',
   },

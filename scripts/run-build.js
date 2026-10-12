@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
 const { getEnvironmentConfig, setupLocalProperties } = require('./setup-env');
 
@@ -15,31 +15,49 @@ function main() {
   const env = { ...process.env };
   env.JAVA_HOME = envConfig.JAVA_HOME;
   env.ANDROID_HOME = envConfig.ANDROID_HOME;
+  env.ANDROID_SDK_ROOT = envConfig.ANDROID_HOME;
+
+  // Android Preferences 중복 환경변수 충돌 방지
+  delete env.ANDROID_PREFS_ROOT;
+  delete env.ANDROID_SDK_HOME;
+  delete env.JAVA_TOOL_OPTIONS;
+  delete env.GRADLE_OPTS;
+  env.ANDROID_USER_HOME = path.join(process.env.USERPROFILE || 'C:\\Users\\sir', '.android');
 
   const pathSeparator = process.platform === 'win32' ? ';' : ':';
+  const nodeBin = path.dirname(process.execPath);
   const javaBin = path.join(envConfig.JAVA_HOME, 'bin');
   const androidTools = path.join(envConfig.ANDROID_HOME, 'platform-tools');
   const androidEmulator = path.join(envConfig.ANDROID_HOME, 'emulator');
 
-  const additionalPaths = [javaBin, androidTools, androidEmulator];
+  const additionalPaths = [nodeBin, javaBin, androidTools, androidEmulator];
   if (envConfig.platformTools) {
     additionalPaths.push(envConfig.platformTools);
   }
 
-  env.PATH = `${additionalPaths.join(pathSeparator)}${pathSeparator}${env.PATH || ''}`;
+  // Windows 환경변수 대소문자(Path, PATH, path) 중복 방지 및 갱신
+  const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') || 'PATH';
+  const existingPath = process.env[pathKey] || '';
+
+  delete env.PATH;
+  delete env.Path;
+  delete env.path;
+
+  env[pathKey] = `${additionalPaths.join(pathSeparator)}${pathSeparator}${existingPath}`;
 
   console.log(`📌 주입된 환경변수:`);
   console.log(`   JAVA_HOME   : ${env.JAVA_HOME}`);
   console.log(`   ANDROID_HOME: ${env.ANDROID_HOME}`);
 
-  // 3. npx react-native run-android 실행
+  // 3. Gradle 빌드 및 안드로이드 에뮬레이터 앱 실행
   const isWindows = process.platform === 'win32';
-  const command = isWindows ? 'npx.cmd' : 'npx';
-  const args = ['react-native', 'run-android'];
+  const gradlewCmd = isWindows ? 'gradlew.bat' : './gradlew';
+  const androidDir = path.resolve(__dirname, '../android');
 
-  console.log(`\n▶️ 실행 명령어: ${command} ${args.join(' ')}\n`);
+  console.log(`\n▶️ 실행 명령어: ${gradlewCmd} app:installDebug\n`);
 
-  const child = spawn(command, args, {
+  const child = spawn(gradlewCmd, ['app:installDebug'], {
+    cwd: androidDir,
     env,
     stdio: 'inherit',
     shell: true,
@@ -47,7 +65,14 @@ function main() {
 
   child.on('close', (code) => {
     if (code === 0) {
-      console.log(`\n🎉 [${envKey.toUpperCase()}] 빌드 및 실행 완료!`);
+      console.log(`\n📲 앱 설치 성공! 에뮬레이터 포트 포워딩 및 앱을 구동합니다...`);
+      try {
+        execSync('adb reverse tcp:8081 tcp:8081', { env, stdio: 'inherit' });
+        execSync('adb shell am start -n com.budgetapp/.MainActivity', { env, stdio: 'inherit' });
+        console.log(`\n🎉 [${envKey.toUpperCase()}] 빌드 및 앱 실행 완벽 완료!`);
+      } catch (err) {
+        console.warn(`⚠️ 앱 자동 실행 중 안내:`, err.message);
+      }
     } else {
       console.error(`\n❌ 빌드 중 오류 발생 (종료 코드: ${code})`);
       process.exit(code || 1);
