@@ -5,9 +5,11 @@ node_modules/
 android/app/build/
 android/.gradle/
 android/app/.cxx/
+android/local.properties
 
 # IDE / Editor
 .vscode/
+.idea/
 .superpowers/
 
 # Temporary files

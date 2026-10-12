@@ -1,4 +1,13 @@
 {
+  "name": "BudgetApp",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "react-native start",
+    "android:win": "node scripts/run-build.js window",
+    "android:mac": "node scripts/run-build.js mac",
+    "env:win": "node scripts/setup-env.js window",
+    "env:mac": "node scripts/setup-env.js mac"
+  },
   "dependencies": {
     "@react-navigation/native": "^7.5.0",
     "@react-navigation/native-stack": "^7.20.0",

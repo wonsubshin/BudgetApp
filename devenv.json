@@ -1,0 +1,15 @@
+{
+  "activeEnv": "window",
+  "environments": {
+    "window": {
+      "JAVA_HOME": "D:\\dev\\tools\\openJDK\\17",
+      "ANDROID_HOME": "C:\\Users\\sir\\AppData\\Local\\Android\\Sdk",
+      "platformTools": "D:\\dev\\tools\\platform-tools-latest-windows\\platform-tools"
+    },
+    "mac": {
+      "JAVA_HOME": "/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home",
+      "ANDROID_HOME": "/Users/wonsub/Library/Android/sdk",
+      "platformTools": "/Users/wonsub/Library/Android/sdk/platform-tools"
+    }
+  }
+}
