@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,11 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { setNickname, setMonthlyBudget } from '../storage/mmkv';
 
@@ -19,15 +24,29 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
   const [name, setName] = useState('');
   const [budgetStr, setBudgetStr] = useState('1500000');
 
+  const nameInputRef = useRef<TextInput>(null);
+  const budgetInputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    // 마운트 후 모바일 가상 키보드를 즉시 띄우기 위해 포커스 부여
+    const timer = setTimeout(() => {
+      nameInputRef.current?.focus();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
+
   const handleSave = () => {
+    Keyboard.dismiss();
     if (!name.trim()) {
       Alert.alert('알림', '사용자 별명을 입력해 주세요.');
+      nameInputRef.current?.focus();
       return;
     }
 
     const parsedBudget = parseInt(budgetStr.replace(/[^0-9]/g, ''), 10);
     if (isNaN(parsedBudget) || parsedBudget <= 0) {
       Alert.alert('알림', '유효한 한 달 예상 예산을 입력해 주세요.');
+      budgetInputRef.current?.focus();
       return;
     }
 
@@ -37,39 +56,59 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>가계부 앱에 오신 것을 환영합니다! 👋</Text>
-      <Text style={styles.subtitle}>
-        스탠드얼론 가계부 사용을 위한 기본 정보를 설정해 주세요.
-      </Text>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.title}>가계부 앱에 오신 것을 환영합니다! 👋</Text>
+          <Text style={styles.subtitle}>
+            스탠드얼론 가계부 사용을 위한 기본 정보를 설정해 주세요.
+          </Text>
 
-      <View style={styles.inputContainer}>
-        <Text style={styles.label}>사용자 별명 (닉네임)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="예: 홍길동"
-          placeholderTextColor="#9E9E9E"
-          value={name}
-          onChangeText={setName}
-        />
-      </View>
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>사용자 별명 (닉네임)</Text>
+            <TextInput
+              ref={nameInputRef}
+              style={styles.input}
+              placeholder="예: 홍길동"
+              placeholderTextColor="#9E9E9E"
+              value={name}
+              onChangeText={setName}
+              autoFocus={true}
+              showSoftInputOnFocus={true}
+              returnKeyType="next"
+              onSubmitEditing={() => budgetInputRef.current?.focus()}
+              blurOnSubmit={false}
+            />
+          </View>
 
-      <View style={styles.inputContainer}>
-        <Text style={styles.label}>한 달 예상 사용 금액 (원)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="1500000"
-          placeholderTextColor="#9E9E9E"
-          keyboardType="numeric"
-          value={budgetStr}
-          onChangeText={setBudgetStr}
-        />
-      </View>
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>한 달 예상 사용 금액 (원)</Text>
+            <TextInput
+              ref={budgetInputRef}
+              style={styles.input}
+              placeholder="1500000"
+              placeholderTextColor="#9E9E9E"
+              keyboardType="numeric"
+              value={budgetStr}
+              onChangeText={setBudgetStr}
+              showSoftInputOnFocus={true}
+              returnKeyType="done"
+              onSubmitEditing={handleSave}
+            />
+          </View>
 
-      <TouchableOpacity style={styles.button} onPress={handleSave}>
-        <Text style={styles.buttonText}>시작하기</Text>
-      </TouchableOpacity>
-    </View>
+          <TouchableOpacity style={styles.button} onPress={handleSave}>
+            <Text style={styles.buttonText}>시작하기</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 };
 
