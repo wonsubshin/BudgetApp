@@ -71,8 +71,8 @@ object FinancialTextParser {
             return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
         }
 
-        // 0. "광고" 문구가 포함된 메시지는 파싱에서 즉시 제외
-        if (bodyToParse.contains("광고")) {
+        // 0. "광고" 문구 또는 "q.samsungcard.com" 마케팅 링크 포함 메시지는 파싱에서 즉시 제외
+        if (bodyToParse.contains("광고") || bodyToParse.contains("q.samsungcard.com")) {
             return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
         }
 
