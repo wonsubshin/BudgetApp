@@ -11,7 +11,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import java.util.regex.Pattern
 
 class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
@@ -65,11 +64,19 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                     val body = if (bodyIndex != -1) it.getString(bodyIndex) ?: "" else ""
                     val smsTime = if (dateIndex != -1) it.getLong(dateIndex) else 0L
 
-                    if (body.isNotBlank() && body.contains("카드")) {
-                        val smsDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(if (smsTime > 0) smsTime else startTime))
-                        val exactCreatedAt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(if (smsTime > 0) smsTime else startTime))
-                        val success = parseAndEmitPayment(body, smsDateStr, exactCreatedAt)
-                        if (success) {
+                    if (body.isNotBlank()) {
+                        val result = FinancialTextParser.parse(body, if (smsTime > 0) smsTime else startTime)
+                        if (result.isPayment) {
+                            FinancialParserModule.emitPaymentEvent(
+                                dateStr = result.dateStr,
+                                amount = result.amount,
+                                merchant = result.merchant,
+                                paymentType = "CARD",
+                                cardCompany = result.cardCompany,
+                                installmentType = result.installmentType,
+                                installmentMonths = result.installmentMonths,
+                                createdAtStr = result.createdAtStr
+                            )
                             parsedCount++
                         }
                     }
@@ -84,59 +91,5 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
         } catch (e: Exception) {
             promise.reject("SMS_SYNC_ERROR", e.message, e)
         }
-    }
-
-    private fun parseAndEmitPayment(body: String, dateStr: String, createdAtStr: String): Boolean {
-        val amountPattern = Pattern.compile("([0-9,]+)원")
-        val installmentPattern = Pattern.compile("(일시불|([0-9]+)개월)")
-
-        val amountMatcher = amountPattern.matcher(body)
-        val installmentMatcher = installmentPattern.matcher(body)
-
-        if (amountMatcher.find()) {
-            val rawAmount = amountMatcher.group(1)?.replace(",", "") ?: "0"
-            val amount = rawAmount.toIntOrNull() ?: 0
-            if (amount <= 0) return false
-
-            var installmentType = "LUMP_SUM"
-            var installmentMonths = 1
-
-            if (installmentMatcher.find()) {
-                val instText = installmentMatcher.group(1) ?: "일시불"
-                if (instText != "일시불") {
-                    installmentType = "INSTALLMENT"
-                    installmentMonths = installmentMatcher.group(2)?.toIntOrNull() ?: 1
-                }
-            }
-
-            val cardCompany = when {
-                body.contains("신한") -> "신한카드"
-                body.contains("국민") || body.contains("KB") -> "국민카드"
-                body.contains("현대") -> "현대카드"
-                body.contains("삼성") -> "삼성카드"
-                body.contains("롯데") -> "롯데카드"
-                body.contains("하나") -> "하나카드"
-                body.contains("우리") -> "우리카드"
-                body.contains("농협") || body.contains("NH") -> "NH농협카드"
-                body.contains("카카오") -> "카카오뱅크"
-                else -> "기타카드"
-            }
-
-            val words = body.split("\\s+".toRegex())
-            val merchant = words.lastOrNull { it.isNotBlank() && !it.contains("원") && !it.contains("발신") } ?: "카드 결제"
-
-            FinancialParserModule.emitPaymentEvent(
-                dateStr = dateStr,
-                amount = amount,
-                merchant = merchant,
-                paymentType = "CARD",
-                cardCompany = cardCompany,
-                installmentType = installmentType,
-                installmentMonths = installmentMonths,
-                createdAtStr = createdAtStr
-            )
-            return true
-        }
-        return false
     }
 }
