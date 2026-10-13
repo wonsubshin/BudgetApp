@@ -37,7 +37,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun syncSmsHistoryWithLog(targetDateStr: String, promise: Promise) {
         val logBuilder = StringBuilder()
-        logBuilder.append("=== BudgetApp SMS & MMS Sync Diagnostic Log ===\n")
+        logBuilder.append("=== BudgetApp SMS, MMS & RCS (content://im/rcs_read_im) Sync Diagnostic Log ===\n")
         logBuilder.append("Device: ").append(Build.MANUFACTURER ?: "").append(" ").append(Build.MODEL ?: "").append("\n")
         logBuilder.append("Android SDK: ").append(Build.VERSION.SDK_INT.toString()).append("\n")
 
@@ -52,8 +52,82 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
             var scannedCount = 0
             val processedBodies = HashSet<String>()
 
-            // 1. MMS 수신함 독립 조회
-            logBuilder.append("--- 1. Querying MMS (content://mms) ---\n")
+            // 1. 삼성 갤럭시 RCS 전용 저장소 조회 (content://im/rcs_read_im)
+            logBuilder.append("--- 1. Querying Samsung RCS IM Storage (content://im/rcs_read_im) ---\n")
+            try {
+                val rcsUri = Uri.parse("content://im/rcs_read_im")
+                val rcsCursor = contentResolver.query(
+                    rcsUri,
+                    null,
+                    null,
+                    null,
+                    "date DESC LIMIT 150"
+                )
+
+                if (rcsCursor == null) {
+                    logBuilder.append("Cursor is NULL for content://im/rcs_read_im\n")
+                } else {
+                    logBuilder.append("RCS IM row count: ").append(rcsCursor.count.toString()).append("\n")
+                    rcsCursor.use { c ->
+                        val bodyIndex = if (c.getColumnIndex("body") != -1) c.getColumnIndex("body") else c.getColumnIndex("text")
+                        val dateIndex = if (c.getColumnIndex("date") != -1) c.getColumnIndex("date") else c.getColumnIndex("date_sent")
+
+                        while (c.moveToNext()) {
+                            val body = if (bodyIndex != -1) c.getString(bodyIndex) ?: "" else ""
+                            var msgTime = if (dateIndex != -1) c.getLong(dateIndex) else 0L
+
+                            if (body.isBlank()) continue
+                            if (processedBodies.contains(body)) continue
+                            processedBodies.add(body)
+                            scannedCount++
+
+                            if (msgTime in 1..9999999999L) {
+                                msgTime *= 1000L
+                            }
+
+                            val fallbackTime = if (msgTime > 0) msgTime else System.currentTimeMillis()
+                            val msgReceivedDateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTime))
+
+                            val result = FinancialTextParser.parse(body, fallbackTime)
+                            if (result.isPayment) {
+                                val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
+                                        (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
+                                        result.dateStr == targetDateStr
+
+                                logBuilder.append("[RCS IM Match Found] Date: ").append(result.dateStr)
+                                    .append(" | Card: ").append(result.cardCompany)
+                                    .append(" | Amount: ").append(result.amount.toString())
+                                    .append(" | Merchant: ").append(result.merchant)
+                                    .append(" | DateFilterMatch: ").append(matchDate.toString()).append("\n")
+
+                                if (matchDate) {
+                                    FinancialParserModule.emitPaymentEvent(
+                                        dateStr = result.dateStr,
+                                        amount = result.amount,
+                                        merchant = result.merchant,
+                                        paymentType = "CARD",
+                                        cardCompany = result.cardCompany,
+                                        installmentType = result.installmentType,
+                                        installmentMonths = result.installmentMonths,
+                                        createdAtStr = result.createdAtStr
+                                    )
+                                    parsedCount++
+                                }
+                            } else {
+                                if (body.contains("삼성") || body.contains("현대") || body.contains("신한") || body.contains("국민") || body.contains("승인") || body.contains("결제")) {
+                                    logBuilder.append("[RCS IM Candidate Inspected] ").append(msgReceivedDateStr).append("\n")
+                                    logBuilder.append("   Content: ").append(body.replace("\n", " ")).append("\n")
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                logBuilder.append("Error querying content://im/rcs_read_im: ").append(e.message ?: "").append("\n")
+            }
+
+            // 2. MMS 수신함 독립 조회
+            logBuilder.append("\n--- 2. Querying MMS (content://mms) ---\n")
             try {
                 val mmsUri = Uri.parse("content://mms")
                 val mmsCursor = contentResolver.query(
@@ -139,8 +213,8 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 logBuilder.append("Error querying MMS: ").append(e.message ?: "").append("\n")
             }
 
-            // 2. SMS 수신함 독립 조회 (content://sms/inbox)
-            logBuilder.append("\n--- 2. Querying SMS Inbox (content://sms/inbox) ---\n")
+            // 3. SMS 수신함 독립 조회 (content://sms/inbox)
+            logBuilder.append("\n--- 3. Querying SMS Inbox (content://sms/inbox) ---\n")
             try {
                 val smsUri = Uri.parse("content://sms/inbox")
                 val smsCursor = contentResolver.query(
@@ -204,7 +278,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 logBuilder.append("Error querying SMS: ").append(e.message ?: "").append("\n")
             }
 
-            // 3. 삼성 기본 '메세지' 어플 대화 저장소 조회
+            // 4. 삼성 기본 '메세지' 어플 대화 저장소 조회
             val conversationUris = listOf(
                 Pair("content://mms-sms/complete-conversations", Uri.parse("content://mms-sms/complete-conversations")),
                 Pair("content://mms-sms/conversations", Uri.parse("content://mms-sms/conversations"))
@@ -214,7 +288,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 val uriName = pair.first
                 val uri = pair.second
 
-                logBuilder.append("\n--- 3. Querying Messages App Storage (").append(uriName).append(") ---\n")
+                logBuilder.append("\n--- 4. Querying Messages App Storage (").append(uriName).append(") ---\n")
                 try {
                     val cursor = contentResolver.query(
                         uri,
