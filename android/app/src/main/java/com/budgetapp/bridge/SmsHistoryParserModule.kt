@@ -37,7 +37,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun syncSmsHistoryWithLog(targetDateStr: String, promise: Promise) {
         val logBuilder = StringBuilder()
-        logBuilder.append("=== BudgetApp SMS & Chatting+ (RCS) Sync Diagnostic Log ===\n")
+        logBuilder.append("=== BudgetApp SMS & MMS Sync Diagnostic Log ===\n")
         logBuilder.append("Device: ").append(Build.MANUFACTURER ?: "").append(" ").append(Build.MODEL ?: "").append("\n")
         logBuilder.append("Android SDK: ").append(Build.VERSION.SDK_INT.toString()).append("\n")
         logBuilder.append("Target Date Filter: ").append(if (targetDateStr.isBlank()) "ALL" else targetDateStr).append("\n\n")
@@ -45,53 +45,131 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
         try {
             val contentResolver: ContentResolver = reactContext.contentResolver
 
-            // 채팅+ (RCS) 및 일반 SMS 수신함 통합 조회 URI 목록
-            val smsUris = listOf(
-                Pair("content://mms-sms/complete-conversations", Uri.parse("content://mms-sms/complete-conversations")),
-                Pair("content://mms-sms/conversations", Uri.parse("content://mms-sms/conversations")),
-                Pair("content://sms/inbox", Uri.parse("content://sms/inbox")),
-                Pair("content://sms", Uri.parse("content://sms"))
-            )
-
             var parsedCount = 0
             var scannedCount = 0
             val processedBodies = HashSet<String>()
 
-            for (pair in smsUris) {
-                val uriName = pair.first
-                val uri = pair.second
+            // 1. MMS 수신함 독립 조회 (MMS 타임스탬프는 초 단위이므로 별도 조회하여 최신순 정렬)
+            logBuilder.append("--- 1. Querying MMS (content://mms) ---\n")
+            try {
+                val mmsUri = Uri.parse("content://mms")
+                val mmsCursor = contentResolver.query(
+                    mmsUri,
+                    arrayOf("_id", "date"),
+                    null,
+                    null,
+                    "date DESC LIMIT 100"
+                )
 
-                logBuilder.append("--- Querying URI: ").append(uriName).append(" ---\n")
-                try {
-                    val cursor = contentResolver.query(
-                        uri,
-                        arrayOf("body", "date"),
-                        null,
-                        null,
-                        "date DESC LIMIT 500"
-                    )
+                if (mmsCursor != null) {
+                    logBuilder.append("MMS row count: ").append(mmsCursor.count.toString()).append("\n")
+                    mmsCursor.use { cursor ->
+                        val idIndex = cursor.getColumnIndex("_id")
+                        val dateIndex = cursor.getColumnIndex("date")
 
-                    if (cursor == null) {
-                        logBuilder.append("Cursor is NULL for ").append(uriName).append("\n")
-                        continue
+                        while (cursor.moveToNext()) {
+                            val mmsId = if (idIndex != -1) cursor.getString(idIndex) ?: "" else continue
+                            var mmsTime = if (dateIndex != -1) cursor.getLong(dateIndex) else 0L
+
+                            // MMS 10자리(초 단위) 타임스탬프를 밀리초로 정상 변환
+                            if (mmsTime in 1..9999999999L) {
+                                mmsTime *= 1000L
+                            }
+
+                            // MMS 텍스트 파트 조회 (content://mms/part)
+                            val partUri = Uri.parse("content://mms/part")
+                            val partCursor = contentResolver.query(
+                                partUri,
+                                arrayOf("text", "ct"),
+                                "mid = ?",
+                                arrayOf(mmsId),
+                                null
+                            )
+
+                            val bodyBuilder = StringBuilder()
+                            partCursor?.use { pCursor ->
+                                val textIdx = pCursor.getColumnIndex("text")
+                                val ctIdx = pCursor.getColumnIndex("ct")
+                                while (pCursor.moveToNext()) {
+                                    val ct = if (ctIdx != -1) pCursor.getString(ctIdx) ?: "" else ""
+                                    if (ct == "text/plain") {
+                                        val text = if (textIdx != -1) pCursor.getString(textIdx) ?: "" else ""
+                                        bodyBuilder.append(text).append("\n")
+                                    }
+                                }
+                            }
+
+                            val body = bodyBuilder.toString().trim()
+                            if (body.isNotBlank() && !processedBodies.contains(body)) {
+                                processedBodies.add(body)
+                                scannedCount++
+
+                                val fallbackTime = if (mmsTime > 0) mmsTime else System.currentTimeMillis()
+                                val mmsReceivedDateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTime))
+
+                                val result = FinancialTextParser.parse(body, fallbackTime)
+                                if (result.isPayment) {
+                                    val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" || result.dateStr == targetDateStr || mmsReceivedDateStr.startsWith(targetDateStr)
+                                    logBuilder.append("[MMS Match Found] Time: ").append(mmsReceivedDateStr)
+                                        .append(" | Card: ").append(result.cardCompany)
+                                        .append(" | Amount: ").append(result.amount.toString())
+                                        .append(" | Merchant: ").append(result.merchant)
+                                        .append(" | DateFilterMatch: ").append(matchDate.toString()).append("\n")
+
+                                    if (matchDate) {
+                                        FinancialParserModule.emitPaymentEvent(
+                                            dateStr = result.dateStr,
+                                            amount = result.amount,
+                                            merchant = result.merchant,
+                                            paymentType = "CARD",
+                                            cardCompany = result.cardCompany,
+                                            installmentType = result.installmentType,
+                                            installmentMonths = result.installmentMonths,
+                                            createdAtStr = result.createdAtStr
+                                        )
+                                        parsedCount++
+                                    }
+                                } else {
+                                    if (body.contains("삼성") || body.contains("현대") || body.contains("신한") || body.contains("국민") || body.contains("승인") || body.contains("결제")) {
+                                        logBuilder.append("[MMS Candidate Inspected] ").append(mmsReceivedDateStr).append("\n")
+                                        logBuilder.append("   Content: ").append(body.replace("\n", " ")).append("\n")
+                                    }
+                                }
+                            }
+                        }
                     }
+                }
+            } catch (e: Exception) {
+                logBuilder.append("Error querying MMS: ").append(e.message ?: "").append("\n")
+            }
 
-                    logBuilder.append("Inbox row count: ").append(cursor.count.toString()).append("\n")
+            // 2. SMS 수신함 독립 조회 (content://sms/inbox)
+            logBuilder.append("\n--- 2. Querying SMS Inbox (content://sms/inbox) ---\n")
+            try {
+                val smsUri = Uri.parse("content://sms/inbox")
+                val smsCursor = contentResolver.query(
+                    smsUri,
+                    arrayOf("body", "date"),
+                    null,
+                    null,
+                    "date DESC LIMIT 150"
+                )
 
-                    cursor.use {
-                        val bodyIndex = it.getColumnIndex("body")
-                        val dateIndex = it.getColumnIndex("date")
+                if (smsCursor != null) {
+                    logBuilder.append("SMS row count: ").append(smsCursor.count.toString()).append("\n")
+                    smsCursor.use { cursor ->
+                        val bodyIndex = cursor.getColumnIndex("body")
+                        val dateIndex = cursor.getColumnIndex("date")
 
-                        while (it.moveToNext()) {
-                            scannedCount++
-                            val body = if (bodyIndex != -1) it.getString(bodyIndex) ?: "" else ""
-                            var smsTime = if (dateIndex != -1) it.getLong(dateIndex) else 0L
+                        while (cursor.moveToNext()) {
+                            val body = if (bodyIndex != -1) cursor.getString(bodyIndex) ?: "" else ""
+                            var smsTime = if (dateIndex != -1) cursor.getLong(dateIndex) else 0L
 
                             if (body.isBlank()) continue
                             if (processedBodies.contains(body)) continue
                             processedBodies.add(body)
+                            scannedCount++
 
-                            // 10자리(초 단위) 타임스탬프인 경우 밀리초로 변환
                             if (smsTime in 1..9999999999L) {
                                 smsTime *= 1000L
                             }
@@ -103,7 +181,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
 
                             if (result.isPayment) {
                                 val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" || result.dateStr == targetDateStr || smsReceivedDateStr.startsWith(targetDateStr)
-                                logBuilder.append("[Match Found] Time: ").append(smsReceivedDateStr)
+                                logBuilder.append("[SMS Match Found] Time: ").append(smsReceivedDateStr)
                                     .append(" | Card: ").append(result.cardCompany)
                                     .append(" | Amount: ").append(result.amount.toString())
                                     .append(" | Merchant: ").append(result.merchant)
@@ -124,15 +202,15 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                                 }
                             } else {
                                 if (body.contains("삼성") || body.contains("현대") || body.contains("신한") || body.contains("국민") || body.contains("승인") || body.contains("결제")) {
-                                    logBuilder.append("[SMS/RCS Candidate Inspected] ").append(smsReceivedDateStr).append("\n")
+                                    logBuilder.append("[SMS Candidate Inspected] ").append(smsReceivedDateStr).append("\n")
                                     logBuilder.append("   Content: ").append(body.replace("\n", " ")).append("\n")
                                 }
                             }
                         }
                     }
-                } catch (e: Exception) {
-                    logBuilder.append("Error querying ").append(uriName).append(": ").append(e.message ?: "").append("\n")
                 }
+            } catch (e: Exception) {
+                logBuilder.append("Error querying SMS: ").append(e.message ?: "").append("\n")
             }
 
             // 푸시 알림 히스토리 분석
