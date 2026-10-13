@@ -1,5 +1,7 @@
 package com.budgetapp.bridge
 
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -19,29 +21,74 @@ data class ParsedPaymentResult(
 
 object FinancialTextParser {
 
+    /**
+     * 삼성 갤럭시 RCS 채팅+ JSON 구조(open_rich_card Layout)에서 텍스트(TextView) 영역을 자동 추출
+     */
+    fun extractTextFromRcsJson(rawBody: String): String {
+        val trimmed = rawBody.trim()
+        if (!trimmed.startsWith("{") || !trimmed.contains("widget")) {
+            return rawBody
+        }
+
+        try {
+            val extractedTexts = StringBuilder()
+            val json = JSONObject(trimmed)
+
+            fun traverseJson(obj: Any?) {
+                when (obj) {
+                    is JSONObject -> {
+                        if (obj.optString("widget") == "TextView" && obj.has("text")) {
+                            val text = obj.optString("text")
+                            if (text.isNotBlank()) {
+                                extractedTexts.append(text).append("\n")
+                            }
+                        }
+                        for (key in obj.keys()) {
+                            traverseJson(obj.get(key))
+                        }
+                    }
+                    is JSONArray -> {
+                        for (i in 0 until obj.length()) {
+                            traverseJson(obj.get(i))
+                        }
+                    }
+                }
+            }
+
+            traverseJson(json)
+            val res = extractedTexts.toString().trim()
+            return if (res.isNotBlank()) res else rawBody
+        } catch (e: Exception) {
+            return rawBody
+        }
+    }
+
     fun parse(rawBody: String, fallbackTimeMillis: Long = System.currentTimeMillis()): ParsedPaymentResult {
-        if (rawBody.isBlank()) {
+        // 삼성 RCS JSON 포맷인 경우 TextView 텍스트 영역 추출
+        val bodyToParse = extractTextFromRcsJson(rawBody)
+
+        if (bodyToParse.isBlank()) {
             return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
         }
 
         // 0. "광고" 문구가 포함된 메시지는 파싱에서 즉시 제외
-        if (rawBody.contains("광고")) {
+        if (bodyToParse.contains("광고")) {
             return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
         }
 
         // 1. 카드사 및 승인 문구 체크 (카드사 + 승인/자동결제/결제/접수)
-        val hasKeyword = rawBody.contains("승인") || rawBody.contains("자동결제") || rawBody.contains("결제") || rawBody.contains("접수")
+        val hasKeyword = bodyToParse.contains("승인") || bodyToParse.contains("자동결제") || bodyToParse.contains("결제") || bodyToParse.contains("접수")
         val cardCompany = when {
-            rawBody.contains("삼성") -> "삼성카드"
-            rawBody.contains("현대") -> "현대카드"
-            rawBody.contains("롯데") -> "롯데카드"
-            rawBody.contains("신한") -> "신한카드"
-            rawBody.contains("국민") || rawBody.contains("KB") -> "국민카드"
-            rawBody.contains("하나") -> "하나카드"
-            rawBody.contains("우리") -> "우리카드"
-            rawBody.contains("농협") || rawBody.contains("NH") -> "NH농협카드"
-            rawBody.contains("카카오") -> "카카오뱅크"
-            rawBody.contains("카드") -> "기타카드"
+            bodyToParse.contains("삼성") -> "삼성카드"
+            bodyToParse.contains("현대") -> "현대카드"
+            bodyToParse.contains("롯데") -> "롯데카드"
+            bodyToParse.contains("신한") -> "신한카드"
+            bodyToParse.contains("국민") || bodyToParse.contains("KB") -> "국민카드"
+            bodyToParse.contains("하나") -> "하나카드"
+            bodyToParse.contains("우리") -> "우리카드"
+            bodyToParse.contains("농협") || bodyToParse.contains("NH") -> "NH농협카드"
+            bodyToParse.contains("카카오") -> "카카오뱅크"
+            bodyToParse.contains("카드") -> "기타카드"
             else -> ""
         }
 
@@ -50,7 +97,7 @@ object FinancialTextParser {
         }
 
         // 2. 금액 추출 (누적금액 줄은 제외)
-        val lines = rawBody.split("\n", "\r").map { it.trim() }.filter { it.isNotBlank() }
+        val lines = bodyToParse.split("\n", "\r").map { it.trim() }.filter { it.isNotBlank() }
         var amount = 0
 
         val amountPattern = Pattern.compile("([0-9,]+)\\s*원")
@@ -75,7 +122,7 @@ object FinancialTextParser {
         var installmentType = "LUMP_SUM"
         var installmentMonths = 1
         val installmentPattern = Pattern.compile("(일시불|([0-9]+)개월)")
-        val instMatcher = installmentPattern.matcher(rawBody)
+        val instMatcher = installmentPattern.matcher(bodyToParse)
         if (instMatcher.find()) {
             val instText = instMatcher.group(1) ?: "일시불"
             if (instText != "일시불") {
@@ -90,7 +137,7 @@ object FinancialTextParser {
         var createdAtStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTimeMillis))
 
         val dateTimePattern = Pattern.compile("([0-9]{1,2})\\/([0-9]{1,2})(?:\\s+([0-9]{1,2}):([0-9]{2}))?")
-        val dtMatcher = dateTimePattern.matcher(rawBody)
+        val dtMatcher = dateTimePattern.matcher(bodyToParse)
         if (dtMatcher.find()) {
             val month = dtMatcher.group(1)?.toIntOrNull() ?: 1
             val day = dtMatcher.group(2)?.toIntOrNull() ?: 1
@@ -134,7 +181,7 @@ object FinancialTextParser {
 
         // 패턴 C: 일반 단어 추출
         if (merchant.isBlank()) {
-            val words = rawBody.split("\\s+".toRegex())
+            val words = bodyToParse.split("\\s+".toRegex())
             merchant = words.lastOrNull {
                 it.isNotBlank() && !it.contains("원") && !it.contains("승인") && !it.contains("접수") && !it.contains("누적") && !it.contains("카드")
             } ?: "카드 결제"
