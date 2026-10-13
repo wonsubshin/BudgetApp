@@ -42,8 +42,8 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
         logBuilder.append("Android SDK: ").append(Build.VERSION.SDK_INT.toString()).append("\n")
 
         // 가입(닉네임 설정) 달의 1일 시작일 계산 (예: 2026-10-13 -> 2026-10-01)
-        val monthStartDateStr = if (targetDateStr.length >= 7) "${targetDateStr.substring(0, 7)}-01" else ""
-        logBuilder.append("Target Date Filter: ").append(if (targetDateStr.isBlank()) "ALL" else "$targetDateStr (Syncing from $monthStartDateStr)").append("\n\n")
+        val monthStartDateStr = if (targetDateStr.length >= 7) "${targetDateStr.substring(0, 7)}-01" else SimpleDateFormat("yyyy-MM-01", Locale.getDefault()).format(Date())
+        logBuilder.append("Target Date Filter: ").append(targetDateStr).append(" (Strictly Syncing from ").append(monthStartDateStr).append(" onwards)\n\n")
 
         try {
             val contentResolver: ContentResolver = reactContext.contentResolver
@@ -52,7 +52,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
             var scannedCount = 0
             val processedBodies = HashSet<String>()
 
-            // 1. MMS 수신함 독립 조회 (MMS 타임스탬프는 초 단위이므로 별도 조회하여 최신순 정렬)
+            // 1. MMS 수신함 독립 조회
             logBuilder.append("--- 1. Querying MMS (content://mms) ---\n")
             try {
                 val mmsUri = Uri.parse("content://mms")
@@ -61,7 +61,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                     arrayOf("_id", "date"),
                     null,
                     null,
-                    "date DESC LIMIT 100"
+                    "date DESC LIMIT 150"
                 )
 
                 if (mmsCursor != null) {
@@ -74,12 +74,10 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                             val mmsId = if (idIndex != -1) cursor.getString(idIndex) ?: "" else continue
                             var mmsTime = if (dateIndex != -1) cursor.getLong(dateIndex) else 0L
 
-                            // MMS 10자리(초 단위) 타임스탬프를 밀리초로 정상 변환
                             if (mmsTime in 1..9999999999L) {
                                 mmsTime *= 1000L
                             }
 
-                            // MMS 텍스트 파트 조회 (content://mms/part)
                             val partUri = Uri.parse("content://mms/part")
                             val partCursor = contentResolver.query(
                                 partUri,
@@ -108,16 +106,12 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                                 scannedCount++
 
                                 val fallbackTime = if (mmsTime > 0) mmsTime else System.currentTimeMillis()
-                                val mmsReceivedDateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTime))
-
                                 val result = FinancialTextParser.parse(body, fallbackTime)
                                 if (result.isPayment) {
-                                    val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
-                                            (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
-                                            result.dateStr == targetDateStr ||
-                                            mmsReceivedDateStr.startsWith(targetDateStr)
+                                    // 엄격한 시작일 체크: 가입월 1일 이상(result.dateStr >= monthStartDateStr)만 인정
+                                    val matchDate = result.dateStr >= monthStartDateStr
 
-                                    logBuilder.append("[MMS Match Found] Time: ").append(mmsReceivedDateStr)
+                                    logBuilder.append("[MMS Match Found] Date: ").append(result.dateStr)
                                         .append(" | Card: ").append(result.cardCompany)
                                         .append(" | Amount: ").append(result.amount.toString())
                                         .append(" | Merchant: ").append(result.merchant)
@@ -135,11 +129,6 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                                             createdAtStr = result.createdAtStr
                                         )
                                         parsedCount++
-                                    }
-                                } else {
-                                    if (body.contains("삼성") || body.contains("현대") || body.contains("신한") || body.contains("국민") || body.contains("승인") || body.contains("결제")) {
-                                        logBuilder.append("[MMS Candidate Inspected] ").append(mmsReceivedDateStr).append("\n")
-                                        logBuilder.append("   Content: ").append(body.replace("\n", " ")).append("\n")
                                     }
                                 }
                             }
@@ -159,7 +148,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                     arrayOf("body", "date"),
                     null,
                     null,
-                    "date DESC LIMIT 150"
+                    "date DESC LIMIT 200"
                 )
 
                 if (smsCursor != null) {
@@ -182,17 +171,13 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                             }
 
                             val fallbackTime = if (smsTime > 0) smsTime else System.currentTimeMillis()
-                            val smsReceivedDateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTime))
-
                             val result = FinancialTextParser.parse(body, fallbackTime)
 
                             if (result.isPayment) {
-                                val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
-                                        (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
-                                        result.dateStr == targetDateStr ||
-                                        smsReceivedDateStr.startsWith(targetDateStr)
+                                // 엄격한 시작일 체크: 가입월 1일 이상(result.dateStr >= monthStartDateStr)만 인정
+                                val matchDate = result.dateStr >= monthStartDateStr
 
-                                logBuilder.append("[SMS Match Found] Time: ").append(smsReceivedDateStr)
+                                logBuilder.append("[SMS Match Found] Date: ").append(result.dateStr)
                                     .append(" | Card: ").append(result.cardCompany)
                                     .append(" | Amount: ").append(result.amount.toString())
                                     .append(" | Merchant: ").append(result.merchant)
@@ -210,11 +195,6 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                                         createdAtStr = result.createdAtStr
                                     )
                                     parsedCount++
-                                }
-                            } else {
-                                if (body.contains("삼성") || body.contains("현대") || body.contains("신한") || body.contains("국민") || body.contains("승인") || body.contains("결제")) {
-                                    logBuilder.append("[SMS Candidate Inspected] ").append(smsReceivedDateStr).append("\n")
-                                    logBuilder.append("   Content: ").append(body.replace("\n", " ")).append("\n")
                                 }
                             }
                         }
@@ -241,7 +221,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                         arrayOf("body", "date"),
                         null,
                         null,
-                        "date DESC LIMIT 150"
+                        "date DESC LIMIT 200"
                     )
 
                     if (cursor == null) {
@@ -268,16 +248,12 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                             }
 
                             val fallbackTime = if (msgTime > 0) msgTime else System.currentTimeMillis()
-                            val msgReceivedDateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTime))
-
                             val result = FinancialTextParser.parse(body, fallbackTime)
-                            if (result.isPayment) {
-                                val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
-                                        (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
-                                        result.dateStr == targetDateStr ||
-                                        msgReceivedDateStr.startsWith(targetDateStr)
 
-                                logBuilder.append("[Conv Match Found] Time: ").append(msgReceivedDateStr)
+                            if (result.isPayment) {
+                                val matchDate = result.dateStr >= monthStartDateStr
+
+                                logBuilder.append("[Conv Match Found] Date: ").append(result.dateStr)
                                     .append(" | Card: ").append(result.cardCompany)
                                     .append(" | Amount: ").append(result.amount.toString())
                                     .append(" | Merchant: ").append(result.merchant)

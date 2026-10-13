@@ -18,6 +18,7 @@ import {
   getMonthlyBudget,
   setMonthlyBudget,
   getLastHolidaySync,
+  getNicknameCreatedAt,
 } from '../storage/mmkv';
 import { recurringDao } from '../database/recurringDao';
 import { holidayDao } from '../database/holidayDao';
@@ -84,14 +85,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     loadSettingsData();
   };
 
-  // 실시간 수신함 동기화 실행
+  // 실시간 수신함 동기화 실행 (가입월 1일부터 실시간 반영)
   const handleSyncSmsHistory = async () => {
+    const nicknameDate = getNicknameCreatedAt();
     setIsSyncing(true);
-    const count = await syncSmsHistoryForDate('ALL');
+    const count = await syncSmsHistoryForDate(nicknameDate);
     setIsSyncing(false);
 
+    const monthStartStr = nicknameDate.length >= 7 ? `${nicknameDate.substring(0, 7)}-01` : '1일';
+
     if (count > 0) {
-      Alert.alert('동기화 완료', `수신함에서 카드 결제 내역 ${count}건을 새로 찾아 가계부에 실시간 반영했습니다!`);
+      Alert.alert('동기화 완료', `가입월 1일(${monthStartStr})부터 수신된 카드 결제 내역 ${count}건을 가계부에 실시간 반영했습니다!`);
     } else {
       Alert.alert('동기화 완료', '수신함에서 새로 등록할 신규 카드 결제 내역이 없습니다.');
     }
