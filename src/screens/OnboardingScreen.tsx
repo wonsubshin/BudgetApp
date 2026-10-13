@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import dayjs from 'dayjs';
 import { setNickname, setNicknameCreatedAt, setMonthlyBudget } from '../storage/mmkv';
+import { syncSmsHistoryForDate } from '../services/smsHistoryService';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
 interface OnboardingScreenProps {
@@ -37,7 +38,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
     return () => clearTimeout(timer);
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     Keyboard.dismiss();
     if (!name.trim()) {
       Alert.alert('알림', '사용자 별명을 입력해 주세요.');
@@ -52,9 +53,21 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
       return;
     }
 
+    const todayStr = dayjs().format('YYYY-MM-DD');
     setNickname(name.trim());
-    setNicknameCreatedAt(dayjs().format('YYYY-MM-DD'));
+    setNicknameCreatedAt(todayStr);
     setMonthlyBudget(parsedBudget);
+
+    // 닉네임 설정일(오늘)의 카드 결제 SMS/푸시 내역 자동 분석 및 등록
+    try {
+      const count = await syncSmsHistoryForDate(todayStr);
+      if (count > 0) {
+        Alert.alert('자동 등록 완료', `닉네임 설정일(${todayStr})의 카드 결제 내역 ${count}건을 수신하여 가계부에 자동 등록했습니다!`);
+      }
+    } catch (e) {
+      console.warn('SMS sync error:', e);
+    }
+
     onComplete();
   };
 

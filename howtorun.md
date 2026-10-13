@@ -123,3 +123,6 @@ npm run android:mac
 | `npm run android:mac` | macOS 환경변수 적용 및 안드로이드 빌드/실행 |
 | `npm run env:win` | 빌드 없이 Windows용 `local.properties` 경로만 동기화 |
 | `npm run env:mac` | 빌드 없이 macOS용 `local.properties` 경로만 동기화 |
+
+## 5. 📜 apk 생성
+node scripts/run-build.js window assembleRelease

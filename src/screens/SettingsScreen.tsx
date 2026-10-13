@@ -16,10 +16,12 @@ import {
   getMonthlyBudget,
   setMonthlyBudget,
   getLastHolidaySync,
+  getNicknameCreatedAt,
 } from '../storage/mmkv';
 import { recurringDao } from '../database/recurringDao';
 import { holidayDao } from '../database/holidayDao';
 import { holidayService } from '../services/holidayService';
+import { syncSmsHistoryForDate } from '../services/smsHistoryService';
 import { RecurringRuleModal } from '../components/settings/RecurringRuleModal';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
@@ -79,6 +81,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       Alert.alert('안내', '네트워크 미연결로 기본 내장 공휴일 데이터를 세팅했습니다.');
     }
     loadSettingsData();
+  };
+
+  const handleSyncSmsHistory = async () => {
+    const nicknameDate = getNicknameCreatedAt();
+    setIsSyncing(true);
+    const count = await syncSmsHistoryForDate(nicknameDate);
+    setIsSyncing(false);
+
+    if (count > 0) {
+      Alert.alert('동기화 완료', `닉네임 설정일(${nicknameDate})의 카드 결제 문자를 수신하여 ${count}건을 가계부에 자동 등록했습니다!`);
+    } else {
+      Alert.alert('안내', `닉네임 설정일(${nicknameDate}) 수신함에서 신규 카드 결제 문자가 발견되지 않았습니다.`);
+    }
   };
 
   const handleAddRule = () => {
@@ -204,7 +219,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* 3. 정기 결제 관리 */}
+      {/* 3. 닉네임 설정일 결제 문자 자동 동기화 */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>📱 닉네임 설정일 결제 문자 동기화</Text>
+        <Text style={styles.sectionSub}>
+          닉네임을 처음 설정한 날({getNicknameCreatedAt()})의 카드 결제 문자 내역을 수신함에서 분석하여 가계부에 자동 반영합니다.
+        </Text>
+        <TouchableOpacity
+          style={[styles.syncBtn, { backgroundColor: '#2196F3' }]}
+          activeOpacity={0.7}
+          delayPressIn={0}
+          onPress={handleSyncSmsHistory}
+          disabled={isSyncing}
+        >
+          <Text style={styles.syncBtnText}>📱 닉네임 설정일 결제 문자 분석 실행</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 4. 정기 결제 관리 */}
       <View style={styles.section}>
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>🔄 정기 결제 내역 관리</Text>
@@ -255,7 +287,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         ))}
       </View>
 
-      {/* 4. 임시 공휴일 수동 관리 및 페이지 이동 */}
+      {/* 5. 임시 공휴일 수동 관리 및 페이지 이동 */}
       <View style={styles.section}>
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>✏️ 임시공휴일 수동 관리</Text>

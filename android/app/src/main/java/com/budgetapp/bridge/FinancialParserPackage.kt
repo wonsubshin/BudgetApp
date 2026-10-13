@@ -7,7 +7,10 @@ import com.facebook.react.uimanager.ViewManager
 
 class FinancialParserPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-        return listOf(FinancialParserModule(reactContext))
+        return listOf(
+            FinancialParserModule(reactContext),
+            SmsHistoryParserModule(reactContext)
+        )
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
