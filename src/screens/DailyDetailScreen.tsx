@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  DeviceEventEmitter,
 } from 'react-native';
 import dayjs from 'dayjs';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
@@ -97,6 +98,10 @@ export const DailyDetailScreen = ({ route }: any) => {
 
   useEffect(() => {
     loadTransactions();
+    const sub = DeviceEventEmitter.addListener('TRANSACTION_UPDATED', () => {
+      loadTransactions();
+    });
+    return () => sub.remove();
   }, [loadTransactions]);
 
   const handleAdd = () => {
