@@ -37,7 +37,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun syncSmsHistoryWithLog(targetDateStr: String, promise: Promise) {
         val logBuilder = StringBuilder()
-        logBuilder.append("=== BudgetApp SMS Inbox Diagnostic Log ===\n")
+        logBuilder.append("=== BudgetApp SMS & Chatting+ (RCS) Sync Diagnostic Log ===\n")
         logBuilder.append("Device: ").append(Build.MANUFACTURER ?: "").append(" ").append(Build.MODEL ?: "").append("\n")
         logBuilder.append("Android SDK: ").append(Build.VERSION.SDK_INT.toString()).append("\n")
         logBuilder.append("Target Date Filter: ").append(if (targetDateStr.isBlank()) "ALL" else targetDateStr).append("\n\n")
@@ -45,8 +45,10 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
         try {
             val contentResolver: ContentResolver = reactContext.contentResolver
 
-            // MMS를 완전히 제외하고 순수 SMS 수신함(Inbox, type = 1)만 최신순으로 500건 조회
+            // 채팅+ (RCS) 및 일반 SMS 수신함 통합 조회 URI 목록
             val smsUris = listOf(
+                Pair("content://mms-sms/complete-conversations", Uri.parse("content://mms-sms/complete-conversations")),
+                Pair("content://mms-sms/conversations", Uri.parse("content://mms-sms/conversations")),
                 Pair("content://sms/inbox", Uri.parse("content://sms/inbox")),
                 Pair("content://sms", Uri.parse("content://sms"))
             )
@@ -59,12 +61,12 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 val uriName = pair.first
                 val uri = pair.second
 
-                logBuilder.append("--- Querying SMS Inbox URI: ").append(uriName).append(" ---\n")
+                logBuilder.append("--- Querying URI: ").append(uriName).append(" ---\n")
                 try {
                     val cursor = contentResolver.query(
                         uri,
-                        arrayOf("body", "date", "type"),
-                        "type = 1 OR type IS NULL",
+                        arrayOf("body", "date"),
+                        null,
                         null,
                         "date DESC LIMIT 500"
                     )
@@ -122,7 +124,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                                 }
                             } else {
                                 if (body.contains("삼성") || body.contains("현대") || body.contains("신한") || body.contains("국민") || body.contains("승인") || body.contains("결제")) {
-                                    logBuilder.append("[SMS Candidate Inspected] ").append(smsReceivedDateStr).append("\n")
+                                    logBuilder.append("[SMS/RCS Candidate Inspected] ").append(smsReceivedDateStr).append("\n")
                                     logBuilder.append("   Content: ").append(body.replace("\n", " ")).append("\n")
                                 }
                             }
