@@ -34,6 +34,15 @@
         </intent-filter>
       </receiver>
 
+      <!-- App Push Test Broadcast Receiver -->
+      <receiver
+        android:name=".notification.PushTestReceiver"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="com.budgetapp.TEST_PUSH" />
+        </intent-filter>
+      </receiver>
+
       <!-- KakaoPay & Hyundai Card Push Notification Listener Service -->
       <service
         android:name=".notification.AppNotificationListener"

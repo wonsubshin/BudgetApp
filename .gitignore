@@ -7,6 +7,10 @@ android/.gradle/
 android/app/.cxx/
 android/local.properties
 
+# Keystores
+*.keystore
+*.jks
+
 # IDE / Editor
 .vscode/
 .idea/

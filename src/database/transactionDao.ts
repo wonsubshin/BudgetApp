@@ -1,3 +1,4 @@
+import { DeviceEventEmitter } from 'react-native';
 import { getDb } from './db';
 import { Transaction } from '../types/budget';
 
@@ -5,8 +6,8 @@ export const transactionDao = {
   insertTransaction(tx: Transaction): void {
     const db = getDb();
     db.execute(
-      `INSERT INTO transactions (id, date, category_type, amount, merchant, payment_type, installment_type, installment_months, is_recurring)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      `INSERT INTO transactions (id, date, category_type, amount, merchant, payment_type, card_company, installment_type, installment_months, is_recurring)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         tx.id,
         tx.date,
@@ -14,18 +15,20 @@ export const transactionDao = {
         tx.amount,
         tx.merchant,
         tx.paymentType,
+        tx.cardCompany || null,
         tx.installmentType,
         tx.installmentMonths,
         tx.isRecurring ? 1 : 0,
       ]
     );
+    DeviceEventEmitter.emit('TRANSACTION_UPDATED');
   },
 
   updateTransaction(tx: Transaction): void {
     const db = getDb();
     db.execute(
       `UPDATE transactions
-       SET date = ?, category_type = ?, amount = ?, merchant = ?, payment_type = ?, installment_type = ?, installment_months = ?, is_recurring = ?
+       SET date = ?, category_type = ?, amount = ?, merchant = ?, payment_type = ?, card_company = ?, installment_type = ?, installment_months = ?, is_recurring = ?
        WHERE id = ?;`,
       [
         tx.date,
@@ -33,17 +36,20 @@ export const transactionDao = {
         tx.amount,
         tx.merchant,
         tx.paymentType,
+        tx.cardCompany || null,
         tx.installmentType,
         tx.installmentMonths,
         tx.isRecurring ? 1 : 0,
         tx.id,
       ]
     );
+    DeviceEventEmitter.emit('TRANSACTION_UPDATED');
   },
 
   deleteTransaction(id: string): void {
     const db = getDb();
     db.execute('DELETE FROM transactions WHERE id = ?;', [id]);
+    DeviceEventEmitter.emit('TRANSACTION_UPDATED');
   },
 
   getTransactionsByDate(dateStr: string): Transaction[] {
@@ -61,6 +67,7 @@ export const transactionDao = {
       amount: row.amount,
       merchant: row.merchant,
       paymentType: row.payment_type,
+      cardCompany: row.card_company || undefined,
       installmentType: row.installment_type,
       installmentMonths: row.installment_months,
       isRecurring: Boolean(row.is_recurring),
@@ -83,6 +90,7 @@ export const transactionDao = {
       amount: row.amount,
       merchant: row.merchant,
       paymentType: row.payment_type,
+      cardCompany: row.card_company || undefined,
       installmentType: row.installment_type,
       installmentMonths: row.installment_months,
       isRecurring: Boolean(row.is_recurring),
@@ -105,6 +113,7 @@ export const transactionDao = {
       amount: row.amount,
       merchant: row.merchant,
       paymentType: row.payment_type,
+      cardCompany: row.card_company || undefined,
       installmentType: row.installment_type,
       installmentMonths: row.installment_months,
       isRecurring: Boolean(row.is_recurring),

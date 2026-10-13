@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import React, { useState, useCallback, useEffect } from 'react';
+import { View, StyleSheet, Text, TouchableOpacity, ScrollView, Pressable, DeviceEventEmitter } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
+import { useFocusEffect } from '@react-navigation/native';
 import dayjs from 'dayjs';
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import { BudgetHeaderBanner } from '../components/calendar/BudgetHeaderBanner';
-import { ViewMode, Transaction } from '../types/budget';
+import { ViewMode } from '../types/budget';
 import {
   getMonthlyBudget,
   getViewMode,
@@ -11,12 +13,14 @@ import {
 } from '../storage/mmkv';
 import { transactionDao } from '../database/transactionDao';
 import { recurringDao } from '../database/recurringDao';
-import { getNextBusinessDay } from '../utils/dateUtils';
+import { getNextBusinessDay, isRedDay } from '../utils/dateUtils';
 import {
   calculateDailyBudget,
   getBudgetStatusColor,
   calculateWeeklyRemainingBudget,
 } from '../utils/budgetUtils';
+
+dayjs.extend(isSameOrAfter);
 
 LocaleConfig.locales['kr'] = {
   monthNames: [
@@ -68,14 +72,17 @@ interface MainCalendarScreenProps {
 
 export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
   onSelectDate,
-  onOpenSettings,
 }) => {
   const [currentYearMonth, setCurrentYearMonth] = useState(
     dayjs().format('YYYY-MM')
   );
   const [viewMode, setMode] = useState<ViewMode>(getViewMode());
-  const [dailyTotals, setDailyTotals] = useState<{ [date: string]: number }>({});
+  const [dailyExpenseTotals, setDailyExpenseTotals] = useState<{ [date: string]: number }>({});
+  const [dailySavingsTotals, setDailySavingsTotals] = useState<{ [date: string]: number }>({});
   const [monthlyBudget, setBudget] = useState(getMonthlyBudget());
+
+  // 주간 뷰를 위한 선택된 주 기준 날짜
+  const [selectedWeekDate, setSelectedWeekDate] = useState(dayjs());
 
   const loadCalendarData = useCallback(() => {
     const budget = getMonthlyBudget();
@@ -84,38 +91,67 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
     // 1. 저장된 실제 거래 내역 조회
     const txs = transactionDao.getTransactionsByMonth(currentYearMonth);
 
-    // 2. 정기 결제 내역 롤오버 계산 후 합산
+    // 2. 정기 결제 내역 합산
     const recurringRules = recurringDao.getAllRecurringRules();
     const daysInMonth = dayjs(currentYearMonth, 'YYYY-MM').daysInMonth();
-    const totals: { [date: string]: number } = {};
+
+    const expenseTotals: { [date: string]: number } = {};
+    const savingsTotals: { [date: string]: number } = {};
 
     // DB 거래 내역 반영
     txs.forEach((tx) => {
       if (tx.categoryType === 'EXPENSE') {
-        totals[tx.date] = (totals[tx.date] || 0) + tx.amount;
+        expenseTotals[tx.date] = (expenseTotals[tx.date] || 0) + tx.amount;
+      } else if (tx.categoryType === 'SAVINGS') {
+        savingsTotals[tx.date] = (savingsTotals[tx.date] || 0) + tx.amount;
       }
     });
 
-    // 정기 결제 규칙 반영 (적금은 지정일, 지출은 영업일 이관 적용)
+    // 정기 결제 규칙 반영 (시작일 체크 & 지출은 영업일 이관 / 적금은 당일 반영)
     recurringRules.forEach((rule) => {
-      if (rule.dayOfMonth <= daysInMonth) {
-        const rawDate = `${currentYearMonth}-${String(rule.dayOfMonth).padStart(
-          2,
-          '0'
-        )}`;
-        const effectiveDate = getNextBusinessDay(rawDate, rule.categoryType);
+      const ruleStartStr = rule.startDate || `${currentYearMonth}-01`;
 
-        if (rule.categoryType === 'EXPENSE') {
-          totals[effectiveDate] = (totals[effectiveDate] || 0) + rule.amount;
+      if (rule.isDaily) {
+        for (let day = 1; day <= daysInMonth; day++) {
+          const rawDate = `${currentYearMonth}-${String(day).padStart(2, '0')}`;
+          if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
+            if (rule.categoryType === 'EXPENSE') {
+              const effectiveDate = getNextBusinessDay(rawDate, 'EXPENSE');
+              expenseTotals[effectiveDate] = (expenseTotals[effectiveDate] || 0) + rule.amount;
+            } else if (rule.categoryType === 'SAVINGS') {
+              savingsTotals[rawDate] = (savingsTotals[rawDate] || 0) + rule.amount;
+            }
+          }
+        }
+      } else if (rule.dayOfMonth <= daysInMonth) {
+        const rawDate = `${currentYearMonth}-${String(rule.dayOfMonth).padStart(2, '0')}`;
+        if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
+          if (rule.categoryType === 'EXPENSE') {
+            const effectiveDate = getNextBusinessDay(rawDate, 'EXPENSE');
+            expenseTotals[effectiveDate] = (expenseTotals[effectiveDate] || 0) + rule.amount;
+          } else if (rule.categoryType === 'SAVINGS') {
+            savingsTotals[rawDate] = (savingsTotals[rawDate] || 0) + rule.amount;
+          }
         }
       }
     });
 
-    setDailyTotals(totals);
+    setDailyExpenseTotals(expenseTotals);
+    setDailySavingsTotals(savingsTotals);
   }, [currentYearMonth]);
 
+  // 화면 활성화(포커스) 및 거래/정기결제 변경 이벤트 발생 시 실시간 자동 재로드
+  useFocusEffect(
+    useCallback(() => {
+      loadCalendarData();
+    }, [loadCalendarData])
+  );
+
   useEffect(() => {
-    loadCalendarData();
+    const sub = DeviceEventEmitter.addListener('TRANSACTION_UPDATED', () => {
+      loadCalendarData();
+    });
+    return () => sub.remove();
   }, [loadCalendarData]);
 
   const handleToggleViewMode = (mode: ViewMode) => {
@@ -125,12 +161,21 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
 
   const dailyBudget = calculateDailyBudget(monthlyBudget, currentYearMonth);
 
-  // 주간 뷰 계산 (이번 주 월~일 총 지출)
-  const startOfWeek = dayjs().startOf('week').add(1, 'day'); // 월요일 기준
+  // 해당 날짜가 속한 주의 월요일 계산 (월~일 순서)
+  const getStartOfWeekMonday = (baseDate: dayjs.Dayjs) => {
+    const dayOfWeek = baseDate.day(); // 0: Sun, 1: Mon, ... 6: Sat
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    return baseDate.add(diffToMonday, 'day');
+  };
+
+  const startOfWeekMonday = getStartOfWeekMonday(selectedWeekDate);
+  const endOfWeekSunday = startOfWeekMonday.add(6, 'day');
+
+  // 주간 뷰 계산 (해당 주 월~일 총 지출)
   let weekSpent = 0;
   for (let i = 0; i < 7; i++) {
-    const dateStr = startOfWeek.add(i, 'day').format('YYYY-MM-DD');
-    weekSpent += dailyTotals[dateStr] || 0;
+    const dateStr = startOfWeekMonday.add(i, 'day').format('YYYY-MM-DD');
+    weekSpent += dailyExpenseTotals[dateStr] || 0;
   }
   const weeklyRemaining = calculateWeeklyRemainingBudget(
     monthlyBudget,
@@ -138,12 +183,14 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
     currentYearMonth
   );
 
-  // 커스텀 날짜 셀 렌더링
+  // 커스텀 날짜 셀 렌더링 (월간 뷰용)
   const customDayComponent = ({ date, state }: any) => {
     if (!date) return null;
     const dateStr = date.dateString;
-    const amount = dailyTotals[dateStr] || 0;
-    const color = getBudgetStatusColor(amount, dailyBudget);
+    const isRed = isRedDay(dateStr);
+    const expenseAmount = dailyExpenseTotals[dateStr] || 0;
+    const savingsAmount = dailySavingsTotals[dateStr] || 0;
+    const color = getBudgetStatusColor(expenseAmount, dailyBudget);
     const isToday = dateStr === dayjs().format('YYYY-MM-DD');
 
     return (
@@ -154,6 +201,7 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
         <Text
           style={[
             styles.dayText,
+            isRed && styles.redDayText,
             state === 'disabled' && styles.disabledText,
             isToday && styles.todayText,
           ]}
@@ -161,14 +209,21 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
           {date.day}
         </Text>
 
-        {amount > 0 && (
+        {expenseAmount > 0 && (
           <Text style={[styles.amountText, { color }]}>
-            {amount.toLocaleString()}
+            {expenseAmount.toLocaleString()}
+          </Text>
+        )}
+        {savingsAmount > 0 && (
+          <Text style={[styles.amountText, { color: '#1565C0' }]}>
+            🏦{savingsAmount.toLocaleString()}
           </Text>
         )}
       </TouchableOpacity>
     );
   };
+
+  const daysOfWeekNames = ['월', '화', '수', '목', '금', '토', '일'];
 
   return (
     <View style={styles.container}>
@@ -179,22 +234,148 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
         weeklyRemaining={weeklyRemaining}
       />
 
-      <Calendar
-        current={`${currentYearMonth}-01`}
-        onMonthChange={(month: any) => {
-          const ym = `${month.year}-${String(month.month).padStart(2, '0')}`;
-          setCurrentYearMonth(ym);
-        }}
-        dayComponent={customDayComponent}
-        theme={{
-          backgroundColor: '#FFFFFF',
-          calendarBackground: '#FFFFFF',
-          textSectionTitleColor: '#666666',
-          selectedDayBackgroundColor: '#2196F3',
-          todayTextColor: '#2196F3',
-          arrowColor: '#2196F3',
-        }}
-      />
+      {viewMode === 'MONTHLY' ? (
+        <Calendar
+          current={`${currentYearMonth}-01`}
+          onMonthChange={(month: any) => {
+            const ym = `${month.year}-${String(month.month).padStart(2, '0')}`;
+            setCurrentYearMonth(ym);
+          }}
+          dayComponent={customDayComponent}
+          theme={{
+            backgroundColor: '#FFFFFF',
+            calendarBackground: '#FFFFFF',
+            textSectionTitleColor: '#666666',
+            selectedDayBackgroundColor: '#2196F3',
+            todayTextColor: '#2196F3',
+            arrowColor: '#2196F3',
+          }}
+        />
+      ) : (
+        <ScrollView
+          style={styles.weeklyScrollView}
+          contentContainerStyle={styles.weeklyContent}
+          keyboardShouldPersistTaps="always"
+        >
+          {/* 주간 이동 컨트롤러 */}
+          <View style={styles.weekHeader}>
+            <TouchableOpacity
+              style={styles.weekArrowButton}
+              onPress={() => setSelectedWeekDate(selectedWeekDate.subtract(1, 'week'))}
+            >
+              <Text style={styles.weekArrowText}>◀ 지난 주</Text>
+            </TouchableOpacity>
+
+            <View style={styles.weekTitleContainer}>
+              <Text style={styles.weekTitleText}>
+                {startOfWeekMonday.format('M/D(월)')} ~ {endOfWeekSunday.format('M/D(일)')}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.weekArrowButton}
+              onPress={() => setSelectedWeekDate(selectedWeekDate.add(1, 'week'))}
+            >
+              <Text style={styles.weekArrowText}>다음 주 ▶</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* 오늘 주차로 이동 버튼 */}
+          {!selectedWeekDate.isSame(dayjs(), 'week') && (
+            <TouchableOpacity
+              style={styles.todayResetButton}
+              onPress={() => setSelectedWeekDate(dayjs())}
+            >
+              <Text style={styles.todayResetText}>오늘 주차로 이동</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* 월요일 ~ 일요일 (7일) 상세 카드 목록 */}
+          {daysOfWeekNames.map((dayName, index) => {
+            const dayMoment = startOfWeekMonday.add(index, 'day');
+            const dateStr = dayMoment.format('YYYY-MM-DD');
+            const isRed = isRedDay(dateStr);
+            const spentAmount = dailyExpenseTotals[dateStr] || 0;
+            const savingsAmount = dailySavingsTotals[dateStr] || 0;
+            const isToday = dateStr === dayjs().format('YYYY-MM-DD');
+            const isOverBudget = spentAmount > dailyBudget;
+            const statusColor =
+              spentAmount === 0 ? '#757575' : isOverBudget ? '#D32F2F' : '#2E7D32';
+
+            return (
+              <Pressable
+                key={dateStr}
+                style={({ pressed }) => [
+                  styles.weeklyCardItem,
+                  isToday && styles.weeklyCardItemToday,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => onSelectDate(dateStr)}
+              >
+                <View style={styles.weeklyCardHeader}>
+                  <View style={styles.weeklyCardTitleRow}>
+                    <Text
+                      style={[
+                        styles.weeklyDayName,
+                        isRed && styles.weeklyRedDayName,
+                        isToday && styles.weeklyDayNameToday,
+                      ]}
+                    >
+                      {dayName}요일 ({dayMoment.format('M/D')})
+                    </Text>
+                    {isToday && (
+                      <View style={styles.todayBadge}>
+                        <Text style={styles.todayBadgeText}>오늘</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.statusBadge, { color: statusColor }]}>
+                    {spentAmount === 0
+                      ? '지출 없음'
+                      : isOverBudget
+                      ? `예산 초과 (+${(spentAmount - dailyBudget).toLocaleString()}원)`
+                      : `예산 이내 (-${(dailyBudget - spentAmount).toLocaleString()}원)`}
+                  </Text>
+                </View>
+
+                <View style={styles.weeklyCardBody}>
+                  <View style={styles.weeklyInfoRow}>
+                    <Text style={styles.weeklyInfoLabel}>일일 권장 금액</Text>
+                    <Text style={styles.weeklyInfoValue}>{dailyBudget.toLocaleString()}원</Text>
+                  </View>
+                  <View style={styles.weeklyInfoRow}>
+                    <Text style={styles.weeklyInfoLabel}>실제 사용 금액</Text>
+                    <Text
+                      style={[
+                        styles.weeklyInfoValue,
+                        styles.weeklySpentValue,
+                        { color: statusColor },
+                      ]}
+                    >
+                      {spentAmount.toLocaleString()}원
+                    </Text>
+                  </View>
+
+                  {savingsAmount > 0 && (
+                    <View style={styles.weeklyInfoRow}>
+                      <Text style={styles.weeklyInfoLabel}>적금/저축 금액</Text>
+                      <Text
+                        style={[
+                          styles.weeklyInfoValue,
+                          styles.weeklySpentValue,
+                          { color: '#1565C0' },
+                        ]}
+                      >
+                        🏦 {savingsAmount.toLocaleString()}원
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
     </View>
   );
 };
@@ -202,7 +383,7 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F5F5F5',
   },
   dayCell: {
     width: 44,
@@ -220,6 +401,10 @@ const styles = StyleSheet.create({
     color: '#212121',
     fontWeight: '500',
   },
+  redDayText: {
+    color: '#D32F2F',
+    fontWeight: 'bold',
+  },
   todayText: {
     fontWeight: 'bold',
     color: '#1976D2',
@@ -230,6 +415,135 @@ const styles = StyleSheet.create({
   amountText: {
     fontSize: 10,
     fontWeight: 'bold',
-    marginTop: 2,
+    marginTop: 1,
+  },
+  /* 주간 뷰 스타일 */
+  weeklyScrollView: {
+    flex: 1,
+  },
+  weeklyContent: {
+    padding: 16,
+  },
+  weekHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  weekArrowButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  weekArrowText: {
+    fontSize: 13,
+    color: '#2196F3',
+    fontWeight: '600',
+  },
+  weekTitleContainer: {
+    alignItems: 'center',
+  },
+  weekTitleText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#212121',
+  },
+  todayResetButton: {
+    alignSelf: 'center',
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 16,
+  },
+  todayResetText: {
+    fontSize: 12,
+    color: '#1976D2',
+    fontWeight: '600',
+  },
+  weeklyCardItem: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    elevation: 1,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  weeklyCardItemToday: {
+    borderWidth: 2,
+    borderColor: '#2196F3',
+    backgroundColor: '#F1F8E9',
+  },
+  weeklyCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    paddingBottom: 10,
+    marginBottom: 10,
+  },
+  weeklyCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  weeklyDayName: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#212121',
+  },
+  weeklyRedDayName: {
+    color: '#D32F2F',
+  },
+  weeklyDayNameToday: {
+    color: '#1565C0',
+  },
+  todayBadge: {
+    marginLeft: 8,
+    backgroundColor: '#2196F3',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  todayBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  statusBadge: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  weeklyCardBody: {
+    gap: 4,
+  },
+  weeklyInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  weeklyInfoLabel: {
+    fontSize: 13,
+    color: '#616161',
+  },
+  weeklyInfoValue: {
+    fontSize: 13,
+    color: '#212121',
+    fontWeight: '500',
+  },
+  weeklySpentValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });

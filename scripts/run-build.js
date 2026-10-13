@@ -65,8 +65,11 @@ function main() {
 
   child.on('close', (code) => {
     if (code === 0) {
-      console.log(`\n📲 앱 설치 성공! 에뮬레이터 포트 포워딩 및 앱을 구동합니다...`);
+      console.log(`\n📲 앱 설치 성공! 에뮬레이터 설정 및 앱을 구동합니다...`);
       try {
+        // 스타일러스 튜토리얼 팝업 차단 설정
+        execSync('adb shell settings put secure stylus_handwriting_enabled 0', { env, stdio: 'inherit' });
+        execSync('adb shell settings put global stylus_handwriting_enabled 0', { env, stdio: 'inherit' });
         execSync('adb reverse tcp:8081 tcp:8081', { env, stdio: 'inherit' });
         execSync('adb shell am start -n com.budgetapp/.MainActivity', { env, stdio: 'inherit' });
         console.log(`\n🎉 [${envKey.toUpperCase()}] 빌드 및 앱 실행 완벽 완료!`);

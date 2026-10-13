@@ -14,17 +14,22 @@ class SmsReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
-            val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
-            for (sms in messages) {
-                val body = sms.messageBody ?: continue
-                parseAndEmitPayment(body)
+            val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
+            if (messages.isEmpty()) return
+
+            val fullBody = messages.joinToString("") { it.messageBody ?: "" }
+            if (fullBody.isNotBlank()) {
+                parseAndEmitPayment(fullBody)
             }
         }
     }
 
     private fun parseAndEmitPayment(body: String) {
-        // [카드 승인 정규식 예시]
-        // 예: "[Web발신] 신한카드 승인 홍*동 15,000원 일시불 10/08 12:30 스타벅스강남점"
+        // "카드" 문구가 포함된 경우에만 캐치
+        if (!body.contains("카드")) {
+            return
+        }
+
         val amountPattern = Pattern.compile("([0-9,]+)원")
         val installmentPattern = Pattern.compile("(일시불|([0-9]+)개월)")
 
@@ -49,14 +54,28 @@ class SmsReceiver : BroadcastReceiver() {
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val dateStr = dateFormat.format(Date())
 
-            // 간단 추출 또는 전체 바디에서 사용처 추출
-            val merchant = body.lines().firstOrNull { it.contains("승인") } ?: "카드 결제"
+            val cardCompany = when {
+                body.contains("신한") -> "신한카드"
+                body.contains("국민") || body.contains("KB") -> "국민카드"
+                body.contains("현대") -> "현대카드"
+                body.contains("삼성") -> "삼성카드"
+                body.contains("롯데") -> "롯데카드"
+                body.contains("하나") -> "하나카드"
+                body.contains("우리") -> "우리카드"
+                body.contains("농협") || body.contains("NH") -> "NH농협카드"
+                body.contains("카카오") -> "카카오뱅크"
+                else -> "기타카드"
+            }
+
+            val words = body.split("\\s+".toRegex())
+            val merchant = words.lastOrNull { it.isNotBlank() && !it.contains("원") && !it.contains("발신") } ?: "카드 결제"
 
             FinancialParserModule.emitPaymentEvent(
                 dateStr = dateStr,
                 amount = amount,
                 merchant = merchant,
                 paymentType = "CARD",
+                cardCompany = cardCompany,
                 installmentType = installmentType,
                 installmentMonths = installmentMonths
             )

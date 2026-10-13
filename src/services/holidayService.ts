@@ -3,11 +3,9 @@ import { fallbackHolidays } from '../utils/fallbackHolidays';
 import { setLastHolidaySync } from '../storage/mmkv';
 import { Holiday } from '../types/budget';
 
-const PUBLIC_HOLIDAY_API =
-  'https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo';
+const PUBLIC_HOLIDAY_API = 'https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo';
 // 서비스 키 (필요시 대체 가능하도록 설정)
-const API_KEY =
-  'U5%2Bx0V%2F0%2Fx0V%2F0%2Fx0V%2F0%2Fx0V%2F0%2Fx0V%2F0%2Fx0V%2F0%2Fx0V%2F0%2Fx0V%2F0';
+const API_KEY = 'bf09ccab001ebac6d639311400710826a9c70ba4f7deff2a5f671a99dfce9335';
 
 export const holidayService = {
   seedFallbackHolidays(): void {

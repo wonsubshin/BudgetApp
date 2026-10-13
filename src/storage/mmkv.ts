@@ -1,10 +1,12 @@
 import { MMKV } from 'react-native-mmkv';
+import dayjs from 'dayjs';
 import { ViewMode } from '../types/budget';
 
 export const storage = new MMKV({ id: 'budget-app-storage' });
 
 const KEYS = {
   USER_NICKNAME: 'user_nickname',
+  NICKNAME_CREATED_AT: 'nickname_created_at',
   MONTHLY_BUDGET: 'monthly_budget',
   CALENDAR_VIEW_MODE: 'calendar_view_mode',
   LAST_HOLIDAY_SYNC: 'last_holiday_sync',
@@ -16,6 +18,14 @@ export const getNickname = (): string | null => {
 
 export const setNickname = (nickname: string): void => {
   storage.set(KEYS.USER_NICKNAME, nickname);
+};
+
+export const getNicknameCreatedAt = (): string => {
+  return storage.getString(KEYS.NICKNAME_CREATED_AT) || '2026-10-12';
+};
+
+export const setNicknameCreatedAt = (dateStr: string): void => {
+  storage.set(KEYS.NICKNAME_CREATED_AT, dateStr);
 };
 
 export const getMonthlyBudget = (): number => {

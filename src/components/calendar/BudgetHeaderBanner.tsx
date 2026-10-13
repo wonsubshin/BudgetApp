@@ -23,12 +23,14 @@ export const BudgetHeaderBanner: React.FC<BudgetHeaderBannerProps> = ({
         </Text>
         <TouchableOpacity
           style={styles.toggleButton}
+          activeOpacity={0.7}
+          delayPressIn={0}
           onPress={() =>
             onToggleViewMode(viewMode === 'MONTHLY' ? 'WEEKLY' : 'MONTHLY')
           }
         >
           <Text style={styles.toggleText}>
-            {viewMode === 'MONTHLY' ? '📆 월간 뷰' : '📅 주간 뷰'}
+            {viewMode === 'MONTHLY' ? '📅 주간 뷰' : '📆 월간 뷰'}
           </Text>
         </TouchableOpacity>
       </View>

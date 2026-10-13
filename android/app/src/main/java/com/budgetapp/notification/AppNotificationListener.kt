@@ -15,17 +15,19 @@ class AppNotificationListener : NotificationListenerService() {
         val packageName = sbnObj.packageName ?: return
 
         val extras = sbnObj.notification.extras
-        val title = extras.getString("android.title") ?: ""
-        val text = extras.getString("android.text") ?: ""
-        val fullContent = "$title $text"
+        val title = extras.getCharSequence("android.title")?.toString() ?: ""
+        val text = extras.getCharSequence("android.text")?.toString() ?: ""
+        val bigText = extras.getCharSequence("android.bigText")?.toString() ?: ""
+        val fullContent = "$title $text $bigText"
 
-        // 1. 카카오페이 푸시 알림 감지
-        if (packageName.contains("kakaopay") || fullContent.contains("카카오페이")) {
-            parseKakaoPayNotification(fullContent)
+        // "카드" 문구가 포함된 경우에만 캐치
+        if (!fullContent.contains("카드")) {
+            return
         }
 
-        // 2. 현대카드 앱 푸시 알림 감지
-        if (packageName.contains("hyundaicard") || fullContent.contains("현대카드")) {
+        if (packageName.contains("kakaopay") || fullContent.contains("카카오페이") || fullContent.contains("카카오")) {
+            parseKakaoPayNotification(fullContent)
+        } else if (packageName.contains("hyundaicard") || fullContent.contains("현대카드") || fullContent.contains("카드")) {
             parseHyundaiCardNotification(fullContent)
         }
     }
@@ -38,14 +40,18 @@ class AppNotificationListener : NotificationListenerService() {
             val amountStr = matcher.group(1)?.replace(",", "") ?: "0"
             val amount = amountStr.toIntOrNull() ?: 0
 
-            val dateFormat = SimpleDateFormat("yyyy-MM-DD", Locale.getDefault())
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val dateStr = dateFormat.format(Date())
+
+            val words = text.split("\\s+".toRegex())
+            val merchant = words.lastOrNull { it.isNotBlank() && !it.contains("원") && !it.contains("페이") } ?: "카카오페이 결제"
 
             FinancialParserModule.emitPaymentEvent(
                 dateStr = dateStr,
                 amount = amount,
-                merchant = "카카오페이 결제",
+                merchant = merchant,
                 paymentType = "CARD",
+                cardCompany = "카카오뱅크",
                 installmentType = "LUMP_SUM",
                 installmentMonths = 1
             )
@@ -74,14 +80,31 @@ class AppNotificationListener : NotificationListenerService() {
                 }
             }
 
+            val cardCompany = when {
+                text.contains("신한") -> "신한카드"
+                text.contains("국민") || text.contains("KB") -> "국민카드"
+                text.contains("현대") -> "현대카드"
+                text.contains("삼성") -> "삼성카드"
+                text.contains("롯데") -> "롯데카드"
+                text.contains("하나") -> "하나카드"
+                text.contains("우리") -> "우리카드"
+                text.contains("농협") || text.contains("NH") -> "NH농협카드"
+                text.contains("카카오") -> "카카오뱅크"
+                else -> "현대카드"
+            }
+
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val dateStr = dateFormat.format(Date())
+
+            val words = text.split("\\s+".toRegex())
+            val merchant = words.lastOrNull { it.isNotBlank() && !it.contains("원") && !it.contains("카드") && !it.contains("승인") } ?: "카드 결제"
 
             FinancialParserModule.emitPaymentEvent(
                 dateStr = dateStr,
                 amount = amount,
-                merchant = "현대카드 결제",
+                merchant = merchant,
                 paymentType = "CARD",
+                cardCompany = cardCompany,
                 installmentType = installmentType,
                 installmentMonths = installmentMonths
             )

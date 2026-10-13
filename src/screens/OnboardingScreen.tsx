@@ -12,7 +12,8 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
 } from 'react-native';
-import { setNickname, setMonthlyBudget } from '../storage/mmkv';
+import dayjs from 'dayjs';
+import { setNickname, setNicknameCreatedAt, setMonthlyBudget } from '../storage/mmkv';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
 interface OnboardingScreenProps {
@@ -52,6 +53,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
     }
 
     setNickname(name.trim());
+    setNicknameCreatedAt(dayjs().format('YYYY-MM-DD'));
     setMonthlyBudget(parsedBudget);
     onComplete();
   };
@@ -86,6 +88,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
               textContentType="name"
               autoFocus={true}
               showSoftInputOnFocus={true}
+              disableFullscreenUI={true}
               returnKeyType="next"
               onSubmitEditing={() => budgetInputRef.current?.focus()}
               blurOnSubmit={false}
@@ -103,6 +106,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
               value={budgetStr}
               onChangeText={(text) => setBudgetStr(formatNumberWithComma(text))}
               showSoftInputOnFocus={true}
+              disableFullscreenUI={true}
               returnKeyType="done"
               onSubmitEditing={handleSave}
             />

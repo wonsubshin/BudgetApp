@@ -7,20 +7,92 @@ import {
   StyleSheet,
   Alert,
 } from 'react-native';
+import dayjs from 'dayjs';
+import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import { Transaction } from '../types/budget';
 import { transactionDao } from '../database/transactionDao';
+import { recurringDao } from '../database/recurringDao';
+import { getNextBusinessDay } from '../utils/dateUtils';
 import { TransactionModal } from '../components/transaction/TransactionModal';
 
+dayjs.extend(isSameOrAfter);
+
 export const DailyDetailScreen = ({ route }: any) => {
-  const dateStr = route?.params?.dateStr || new Date().toISOString().slice(0, 10);
+  const dateStr = route?.params?.dateStr || dayjs().format('YYYY-MM-DD');
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
 
   const loadTransactions = useCallback(() => {
-    const list = transactionDao.getTransactionsByDate(dateStr);
-    setTransactions(list);
+    const dbList = transactionDao.getTransactionsByDate(dateStr);
+    const recurringRules = recurringDao.getAllRecurringRules();
+
+    const currentMoment = dayjs(dateStr);
+    const yearMonthStr = currentMoment.format('YYYY-MM');
+
+    // 정기 결제/적금 항목 중 해당 날짜에 해당되는 항목 추출 (시작일 반영)
+    const activeRecurringItems: Transaction[] = [];
+
+    recurringRules.forEach((rule) => {
+      const ruleStartStr = rule.startDate || '2026-01-01';
+      let appliesToThisDate = false;
+
+      if (dayjs(dateStr).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
+        if (rule.isDaily) {
+          if (rule.categoryType === 'EXPENSE') {
+            const daysInMonth = currentMoment.daysInMonth();
+            for (let d = 1; d <= daysInMonth; d++) {
+              const rawDate = `${yearMonthStr}-${String(d).padStart(2, '0')}`;
+              if (
+                dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
+                getNextBusinessDay(rawDate, 'EXPENSE') === dateStr
+              ) {
+                appliesToThisDate = true;
+                break;
+              }
+            }
+          } else {
+            appliesToThisDate = true; // 적금은 시작일 이후 매일 당일 적용
+          }
+        } else if (rule.dayOfMonth <= currentMoment.daysInMonth()) {
+          const rawDate = `${yearMonthStr}-${String(rule.dayOfMonth).padStart(2, '0')}`;
+          if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
+            if (rule.categoryType === 'EXPENSE') {
+              if (getNextBusinessDay(rawDate, 'EXPENSE') === dateStr) {
+                appliesToThisDate = true;
+              }
+            } else {
+              if (rawDate === dateStr) {
+                appliesToThisDate = true;
+              }
+            }
+          }
+        }
+      }
+
+      if (appliesToThisDate) {
+        const alreadyInDb = dbList.some(
+          (tx) => tx.merchant === rule.merchant && tx.amount === rule.amount
+        );
+        if (!alreadyInDb) {
+          activeRecurringItems.push({
+            id: `recurring_${rule.id}_${dateStr}`,
+            date: dateStr,
+            categoryType: rule.categoryType,
+            amount: rule.amount,
+            merchant: rule.merchant,
+            paymentType: rule.paymentType,
+            cardCompany: rule.cardCompany,
+            installmentType: rule.installmentType,
+            installmentMonths: 1,
+            isRecurring: true,
+          });
+        }
+      }
+    });
+
+    setTransactions([...dbList, ...activeRecurringItems]);
   }, [dateStr]);
 
   useEffect(() => {
@@ -38,6 +110,10 @@ export const DailyDetailScreen = ({ route }: any) => {
   };
 
   const handleDelete = (id: string) => {
+    if (id.startsWith('recurring_')) {
+      Alert.alert('안내', '정기 결제/적금 항목은 [환경 설정 -> 정기 결제 내역 관리]에서 삭제하실 수 있습니다.');
+      return;
+    }
     Alert.alert('삭제 확인', '해당 거래 내역을 삭제하시겠습니까?', [
       { text: '취소', style: 'cancel' },
       {
@@ -52,7 +128,7 @@ export const DailyDetailScreen = ({ route }: any) => {
   };
 
   const handleSave = (tx: Transaction) => {
-    if (selectedTx) {
+    if (selectedTx && !selectedTx.id.startsWith('recurring_')) {
       transactionDao.updateTransaction(tx);
     } else {
       transactionDao.insertTransaction(tx);
@@ -92,28 +168,41 @@ export const DailyDetailScreen = ({ route }: any) => {
 
       <View style={styles.cardDetail}>
         <Text style={styles.metaText}>
-          {item.paymentType === 'CARD' ? '💳 카드' : '💵 현금'} |{' '}
+          {item.paymentType === 'CARD'
+            ? `💳 ${item.cardCompany || '카드'}`
+            : '💵 현금'}{' '}
+          |{' '}
           {item.installmentType === 'LUMP_SUM'
             ? '일시불'
             : `${item.installmentMonths}개월 할부`}
           {item.isRecurring ? ' (정기결제)' : ''}
         </Text>
 
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={styles.editBtn}
-            onPress={() => handleEdit(item)}
-          >
-            <Text style={styles.btnText}>수정</Text>
-          </TouchableOpacity>
+        {!item.id.startsWith('recurring_') ? (
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={styles.editBtn}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={() => handleEdit(item)}
+            >
+              <Text style={styles.btnText}>수정</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.deleteBtn}
-            onPress={() => handleDelete(item.id)}
-          >
-            <Text style={styles.deleteBtnText}>삭제</Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              style={styles.deleteBtn}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={() => handleDelete(item.id)}
+            >
+              <Text style={styles.deleteBtnText}>삭제</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.recurringNoticeBadge}>
+            <Text style={styles.recurringNoticeText}>자동 정기 항목</Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -145,7 +234,12 @@ export const DailyDetailScreen = ({ route }: any) => {
         }
       />
 
-      <TouchableOpacity style={styles.fab} onPress={handleAdd}>
+      <TouchableOpacity
+        style={styles.fab}
+        activeOpacity={0.7}
+        delayPressIn={0}
+        onPress={handleAdd}
+      >
         <Text style={styles.fabText}>+ 거래 추가</Text>
       </TouchableOpacity>
 
@@ -273,6 +367,17 @@ const styles = StyleSheet.create({
   deleteBtnText: {
     fontSize: 12,
     color: '#D32F2F',
+  },
+  recurringNoticeBadge: {
+    backgroundColor: '#FFF8E1',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  recurringNoticeText: {
+    fontSize: 11,
+    color: '#F57F17',
+    fontWeight: '600',
   },
   emptyContainer: {
     padding: 40,

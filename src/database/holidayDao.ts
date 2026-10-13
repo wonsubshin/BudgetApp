@@ -21,6 +21,29 @@ export const holidayDao = {
     db.execute('DELETE FROM holidays WHERE locdate = ? AND is_custom = 1;', [locdate]);
   },
 
+  getAllCustomHolidays(): Holiday[] {
+    const db = getDb();
+    const result = db.execute(
+      'SELECT * FROM holidays WHERE is_custom = 1 ORDER BY locdate DESC;'
+    );
+    const rows = result.rows?._array || [];
+    return rows.map((row: any) => ({
+      locdate: row.locdate,
+      dateName: row.date_name,
+      isHoliday: Boolean(row.is_holiday),
+      isCustom: Boolean(row.is_custom),
+      updatedAt: row.updated_at,
+    }));
+  },
+
+  updateCustomHoliday(oldLocdate: string, newHoliday: Holiday): void {
+    const db = getDb();
+    if (oldLocdate !== newHoliday.locdate) {
+      db.execute('DELETE FROM holidays WHERE locdate = ? AND is_custom = 1;', [oldLocdate]);
+    }
+    this.upsertHoliday(newHoliday);
+  },
+
   getHolidaysByYear(yearStr: string): Holiday[] {
     const db = getDb();
     const result = db.execute(

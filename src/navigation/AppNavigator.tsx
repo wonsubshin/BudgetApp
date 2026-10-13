@@ -11,6 +11,7 @@ import { MainCalendarScreen } from '../screens/MainCalendarScreen';
 import { DailyDetailScreen } from '../screens/DailyDetailScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { StatisticsScreen } from '../screens/StatisticsScreen';
+import { CustomHolidayScreen } from '../screens/CustomHolidayScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -57,7 +58,12 @@ function MainTabContainer({ navigation }: any) {
           />
         )}
         {activeTab === 'STATS' && <StatisticsScreen />}
-        {activeTab === 'SETTINGS' && <SettingsScreen />}
+        {activeTab === 'SETTINGS' && (
+          <SettingsScreen
+            navigation={navigation}
+            onOpenCustomHolidays={() => navigation.navigate('CustomHolidays')}
+          />
+        )}
       </View>
 
       {/* Bottom Tab Bar with Safe Area Bottom Padding */}
@@ -157,6 +163,11 @@ export const AppNavigator = () => {
           name="Settings"
           component={SettingsScreen}
           options={{ headerShown: true, title: '⚙️ 환경 설정' }}
+        />
+        <Stack.Screen
+          name="CustomHolidays"
+          component={CustomHolidayScreen}
+          options={{ headerShown: true, title: '📅 임시공휴일 관리' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

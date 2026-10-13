@@ -25,6 +25,7 @@ class FinancialParserModule(reactContext: ReactApplicationContext) :
             amount: Int,
             merchant: String,
             paymentType: String,
+            cardCompany: String? = null,
             installmentType: String,
             installmentMonths: Int
         ) {
@@ -33,6 +34,9 @@ class FinancialParserModule(reactContext: ReactApplicationContext) :
                 putInt("amount", amount)
                 putString("merchant", merchant)
                 putString("paymentType", paymentType)
+                if (cardCompany != null) {
+                    putString("cardCompany", cardCompany)
+                }
                 putString("installmentType", installmentType)
                 putInt("installmentMonths", installmentMonths)
             }

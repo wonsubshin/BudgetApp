@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import dayjs from 'dayjs';
+import { useFocusEffect } from '@react-navigation/native';
 import { RecurringRule, Holiday } from '../types/budget';
 import {
   getMonthlyBudget,
@@ -22,7 +23,15 @@ import { holidayService } from '../services/holidayService';
 import { RecurringRuleModal } from '../components/settings/RecurringRuleModal';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
-export const SettingsScreen = () => {
+interface SettingsScreenProps {
+  navigation?: any;
+  onOpenCustomHolidays?: () => void;
+}
+
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({
+  navigation,
+  onOpenCustomHolidays,
+}) => {
   const [budgetStr, setBudgetStr] = useState(formatNumberWithComma(getMonthlyBudget()));
   const [lastSync, setLastSync] = useState(getLastHolidaySync());
   const [isSyncing, setIsSyncing] = useState(false);
@@ -37,15 +46,16 @@ export const SettingsScreen = () => {
 
   const loadSettingsData = useCallback(() => {
     setRecurringRules(recurringDao.getAllRecurringRules());
-    const currentYear = dayjs().format('YYYY');
-    const holidays = holidayDao.getHolidaysByYear(currentYear);
-    setCustomHolidays(holidays.filter((h) => h.isCustom));
+    const list = holidayDao.getAllCustomHolidays();
+    setCustomHolidays(list);
     setLastSync(getLastHolidaySync());
   }, []);
 
-  useEffect(() => {
-    loadSettingsData();
-  }, [loadSettingsData]);
+  useFocusEffect(
+    useCallback(() => {
+      loadSettingsData();
+    }, [loadSettingsData])
+  );
 
   const handleSaveBudget = () => {
     const val = parseNumberFromComma(budgetStr);
@@ -76,6 +86,11 @@ export const SettingsScreen = () => {
     setModalVisible(true);
   };
 
+  const handleEditRule = (rule: RecurringRule) => {
+    setSelectedRule(rule);
+    setModalVisible(true);
+  };
+
   const handleSaveRule = (rule: RecurringRule) => {
     if (selectedRule) {
       recurringDao.updateRecurringRule(rule);
@@ -86,8 +101,17 @@ export const SettingsScreen = () => {
   };
 
   const handleDeleteRule = (id: string) => {
-    recurringDao.deleteRecurringRule(id);
-    loadSettingsData();
+    Alert.alert('정기결제 삭제', '해당 정기 결제 내역을 삭제하시겠습니까?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: () => {
+          recurringDao.deleteRecurringRule(id);
+          loadSettingsData();
+        },
+      },
+    ]);
   };
 
   const handleAddCustomHoliday = () => {
@@ -118,6 +142,14 @@ export const SettingsScreen = () => {
     loadSettingsData();
   };
 
+  const handleOpenCustomHolidaysScreen = () => {
+    if (onOpenCustomHolidays) {
+      onOpenCustomHolidays();
+    } else if (navigation && typeof navigation.navigate === 'function') {
+      navigation.navigate('CustomHolidays');
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* 1. 월 예산 설정 */}
@@ -132,8 +164,16 @@ export const SettingsScreen = () => {
             keyboardType="numeric"
             value={budgetStr}
             onChangeText={(text) => setBudgetStr(formatNumberWithComma(text))}
+            autoCapitalize="none"
+            autoCorrect={false}
+            disableFullscreenUI={true}
           />
-          <TouchableOpacity style={styles.saveBtn} onPress={handleSaveBudget}>
+          <TouchableOpacity
+            style={styles.saveBtn}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={handleSaveBudget}
+          >
             <Text style={styles.saveBtnText}>저장</Text>
           </TouchableOpacity>
         </View>
@@ -151,6 +191,8 @@ export const SettingsScreen = () => {
         </Text>
         <TouchableOpacity
           style={styles.syncBtn}
+          activeOpacity={0.7}
+          delayPressIn={0}
           onPress={handleSyncHolidays}
           disabled={isSyncing}
         >
@@ -166,7 +208,12 @@ export const SettingsScreen = () => {
       <View style={styles.section}>
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>🔄 정기 결제 내역 관리</Text>
-          <TouchableOpacity style={styles.addBtn} onPress={handleAddRule}>
+          <TouchableOpacity
+            style={styles.addBtn}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={handleAddRule}
+          >
             <Text style={styles.addBtnText}>+ 등록</Text>
           </TouchableOpacity>
         </View>
@@ -176,30 +223,53 @@ export const SettingsScreen = () => {
 
         {recurringRules.map((rule) => (
           <View key={rule.id} style={styles.itemCard}>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.itemTitle}>
-                매월 {rule.dayOfMonth}일 | {rule.merchant} (
+                {rule.isDaily ? '매일' : `매월 ${rule.dayOfMonth}일`} | {rule.merchant} (
                 {rule.categoryType === 'EXPENSE' ? '지출' : '적금'})
               </Text>
               <Text style={styles.itemSub}>
-                {rule.amount.toLocaleString()}원 ({rule.paymentType})
+                {rule.amount.toLocaleString()}원 (
+                {rule.paymentType === 'CARD' ? rule.cardCompany || '카드' : '현금'})
               </Text>
             </View>
-            <TouchableOpacity
-              onPress={() => handleDeleteRule(rule.id)}
-              style={styles.deleteBadge}
-            >
-              <Text style={styles.deleteBadgeText}>삭제</Text>
-            </TouchableOpacity>
+            <View style={styles.actionBadgeRow}>
+              <TouchableOpacity
+                onPress={() => handleEditRule(rule)}
+                style={styles.editBadge}
+                activeOpacity={0.7}
+                delayPressIn={0}
+              >
+                <Text style={styles.editBadgeText}>수정</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleDeleteRule(rule.id)}
+                style={styles.deleteBadge}
+                activeOpacity={0.7}
+                delayPressIn={0}
+              >
+                <Text style={styles.deleteBadgeText}>삭제</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ))}
       </View>
 
-      {/* 4. 임시 공휴일 수동 추가 */}
+      {/* 4. 임시 공휴일 수동 관리 및 페이지 이동 */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>✏️ 임시공휴일 수동 추가</Text>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>✏️ 임시공휴일 수동 관리</Text>
+          <TouchableOpacity
+            style={styles.manageBtn}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={handleOpenCustomHolidaysScreen}
+          >
+            <Text style={styles.manageBtnText}>목록 전체 관리 ➔</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.sectionSub}>
-          사용자가 직접 특정 일자를 임시공휴일로 추가하거나 삭제합니다.
+          사용자가 직접 특정 일자를 임시공휴일로 추가하거나 관리 화면에서 수정/삭제합니다.
         </Text>
 
         <View style={styles.row}>
@@ -208,14 +278,25 @@ export const SettingsScreen = () => {
             placeholder="YYYY-MM-DD"
             value={customDate}
             onChangeText={setCustomDate}
+            autoCapitalize="none"
+            autoCorrect={false}
+            disableFullscreenUI={true}
           />
           <TextInput
             style={[styles.input, { flex: 1 }]}
             placeholder="공휴일 명칭"
             value={customName}
             onChangeText={setCustomName}
+            autoCapitalize="none"
+            autoCorrect={false}
+            disableFullscreenUI={true}
           />
-          <TouchableOpacity style={styles.saveBtn} onPress={handleAddCustomHoliday}>
+          <TouchableOpacity
+            style={styles.saveBtn}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={handleAddCustomHoliday}
+          >
             <Text style={styles.saveBtnText}>추가</Text>
           </TouchableOpacity>
         </View>
@@ -228,6 +309,8 @@ export const SettingsScreen = () => {
             <TouchableOpacity
               onPress={() => handleDeleteCustomHoliday(h.locdate)}
               style={styles.deleteBadge}
+              activeOpacity={0.7}
+              delayPressIn={0}
             >
               <Text style={styles.deleteBadgeText}>삭제</Text>
             </TouchableOpacity>
@@ -327,6 +410,17 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 12,
   },
+  manageBtn: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  manageBtnText: {
+    color: '#1976D2',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
   itemCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -345,6 +439,21 @@ const styles = StyleSheet.create({
     color: '#757575',
     marginTop: 2,
   },
+  actionBadgeRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  editBadge: {
+    backgroundColor: '#E0E0E0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  editBadgeText: {
+    fontSize: 12,
+    color: '#424242',
+    fontWeight: '600',
+  },
   deleteBadge: {
     backgroundColor: '#FFEBEE',
     paddingHorizontal: 8,
@@ -354,5 +463,6 @@ const styles = StyleSheet.create({
   deleteBadgeText: {
     fontSize: 12,
     color: '#D32F2F',
+    fontWeight: '600',
   },
 });

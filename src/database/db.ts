@@ -20,6 +20,7 @@ export const initDatabase = (): void => {
       amount INTEGER NOT NULL,
       merchant TEXT NOT NULL,
       payment_type TEXT NOT NULL,
+      card_company TEXT,
       installment_type TEXT NOT NULL,
       installment_months INTEGER DEFAULT 1,
       is_recurring BOOLEAN DEFAULT 0,
@@ -35,10 +36,13 @@ export const initDatabase = (): void => {
     CREATE TABLE IF NOT EXISTS recurring_rules (
       id TEXT PRIMARY KEY NOT NULL,
       day_of_month INTEGER NOT NULL,
+      is_daily BOOLEAN DEFAULT 0,
+      start_date TEXT,
       category_type TEXT NOT NULL,
       amount INTEGER NOT NULL,
       merchant TEXT NOT NULL,
       payment_type TEXT NOT NULL,
+      card_company TEXT,
       installment_type TEXT NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -53,4 +57,21 @@ export const initDatabase = (): void => {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // 기존 설치 기기 컬럼 마이그레이션
+  try {
+    db.execute('ALTER TABLE transactions ADD COLUMN card_company TEXT;');
+  } catch (e) {}
+
+  try {
+    db.execute('ALTER TABLE recurring_rules ADD COLUMN card_company TEXT;');
+  } catch (e) {}
+
+  try {
+    db.execute('ALTER TABLE recurring_rules ADD COLUMN is_daily BOOLEAN DEFAULT 0;');
+  } catch (e) {}
+
+  try {
+    db.execute('ALTER TABLE recurring_rules ADD COLUMN start_date TEXT;');
+  } catch (e) {}
 };
