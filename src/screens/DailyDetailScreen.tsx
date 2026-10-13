@@ -32,15 +32,16 @@ export const DailyDetailScreen = ({ route }: any) => {
     const currentMoment = dayjs(dateStr);
     const yearMonthStr = currentMoment.format('YYYY-MM');
 
-    // 정기 결제/적금 항목 중 해당 날짜에 해당되는 항목 추출 (시작일 반영)
+    // 정기 결제/적금 항목 중 해당 날짜에 해당되는 항목 추출 (시작일 & 다중 요일 반영)
     const activeRecurringItems: Transaction[] = [];
 
     recurringRules.forEach((rule) => {
       const ruleStartStr = rule.startDate || '2026-01-01';
+      const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
       let appliesToThisDate = false;
 
       if (dayjs(dateStr).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
-        if (rule.isDaily) {
+        if (repeatType === 'DAILY') {
           if (rule.categoryType === 'EXPENSE') {
             const daysInMonth = currentMoment.daysInMonth();
             for (let d = 1; d <= daysInMonth; d++) {
@@ -56,16 +57,40 @@ export const DailyDetailScreen = ({ route }: any) => {
           } else {
             appliesToThisDate = true; // 적금은 시작일 이후 매일 당일 적용
           }
-        } else if (rule.dayOfMonth <= currentMoment.daysInMonth()) {
-          const rawDate = `${yearMonthStr}-${String(rule.dayOfMonth).padStart(2, '0')}`;
-          if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
-            if (rule.categoryType === 'EXPENSE') {
-              if (getNextBusinessDay(rawDate, 'EXPENSE') === dateStr) {
-                appliesToThisDate = true;
+        } else if (repeatType === 'MONTHLY_DAY') {
+          if (rule.dayOfMonth <= currentMoment.daysInMonth()) {
+            const rawDate = `${yearMonthStr}-${String(rule.dayOfMonth).padStart(2, '0')}`;
+            if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
+              if (rule.categoryType === 'EXPENSE') {
+                if (getNextBusinessDay(rawDate, 'EXPENSE') === dateStr) {
+                  appliesToThisDate = true;
+                }
+              } else {
+                if (rawDate === dateStr) {
+                  appliesToThisDate = true;
+                }
               }
-            } else {
-              if (rawDate === dateStr) {
-                appliesToThisDate = true;
+            }
+          }
+        } else if (repeatType === 'WEEKLY_DAYS') {
+          const daysInMonth = currentMoment.daysInMonth();
+          for (let d = 1; d <= daysInMonth; d++) {
+            const rawDate = `${yearMonthStr}-${String(d).padStart(2, '0')}`;
+            const dayOfWeek = dayjs(rawDate).day();
+            if (
+              dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
+              (rule.daysOfWeek || []).includes(dayOfWeek)
+            ) {
+              if (rule.categoryType === 'EXPENSE') {
+                if (getNextBusinessDay(rawDate, 'EXPENSE') === dateStr) {
+                  appliesToThisDate = true;
+                  break;
+                }
+              } else {
+                if (rawDate === dateStr) {
+                  appliesToThisDate = true;
+                  break;
+                }
               }
             }
           }

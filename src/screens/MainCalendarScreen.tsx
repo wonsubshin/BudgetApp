@@ -107,25 +107,27 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
       }
     });
 
-    // 정기 결제 규칙 반영 (시작일 체크 & 지출은 영업일 이관 / 적금은 당일 반영)
+    // 정기 결제 규칙 반영 (시작일 & 매일/매월지정일/특정요일 다중선택 체크)
     recurringRules.forEach((rule) => {
       const ruleStartStr = rule.startDate || `${currentYearMonth}-01`;
+      const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
 
-      if (rule.isDaily) {
-        for (let day = 1; day <= daysInMonth; day++) {
-          const rawDate = `${currentYearMonth}-${String(day).padStart(2, '0')}`;
-          if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
-            if (rule.categoryType === 'EXPENSE') {
-              const effectiveDate = getNextBusinessDay(rawDate, 'EXPENSE');
-              expenseTotals[effectiveDate] = (expenseTotals[effectiveDate] || 0) + rule.amount;
-            } else if (rule.categoryType === 'SAVINGS') {
-              savingsTotals[rawDate] = (savingsTotals[rawDate] || 0) + rule.amount;
-            }
+      for (let day = 1; day <= daysInMonth; day++) {
+        const rawDate = `${currentYearMonth}-${String(day).padStart(2, '0')}`;
+        let applies = false;
+
+        if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
+          if (repeatType === 'DAILY') {
+            applies = true;
+          } else if (repeatType === 'MONTHLY_DAY') {
+            applies = day === rule.dayOfMonth;
+          } else if (repeatType === 'WEEKLY_DAYS') {
+            const dayOfWeek = dayjs(rawDate).day(); // 0:일, 1:월, ... 6:토
+            applies = (rule.daysOfWeek || []).includes(dayOfWeek);
           }
         }
-      } else if (rule.dayOfMonth <= daysInMonth) {
-        const rawDate = `${currentYearMonth}-${String(rule.dayOfMonth).padStart(2, '0')}`;
-        if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
+
+        if (applies) {
           if (rule.categoryType === 'EXPENSE') {
             const effectiveDate = getNextBusinessDay(rawDate, 'EXPENSE');
             expenseTotals[effectiveDate] = (expenseTotals[effectiveDate] || 0) + rule.amount;

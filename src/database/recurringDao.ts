@@ -1,19 +1,24 @@
 import { DeviceEventEmitter } from 'react-native';
 import dayjs from 'dayjs';
 import { getDb } from './db';
-import { RecurringRule } from '../types/budget';
+import { RecurringRule, RepeatType } from '../types/budget';
 
 export const recurringDao = {
   insertRecurringRule(rule: RecurringRule): void {
     const db = getDb();
     const startDate = rule.startDate || dayjs().format('YYYY-MM-DD');
+    const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
+    const daysOfWeekJson = JSON.stringify(rule.daysOfWeek || []);
+
     db.execute(
-      `INSERT INTO recurring_rules (id, day_of_month, is_daily, start_date, category_type, amount, merchant, payment_type, card_company, installment_type)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      `INSERT INTO recurring_rules (id, day_of_month, is_daily, repeat_type, days_of_week, start_date, category_type, amount, merchant, payment_type, card_company, installment_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         rule.id,
         rule.dayOfMonth,
         rule.isDaily ? 1 : 0,
+        repeatType,
+        daysOfWeekJson,
         startDate,
         rule.categoryType,
         rule.amount,
@@ -29,13 +34,18 @@ export const recurringDao = {
   updateRecurringRule(rule: RecurringRule): void {
     const db = getDb();
     const startDate = rule.startDate || dayjs().format('YYYY-MM-DD');
+    const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
+    const daysOfWeekJson = JSON.stringify(rule.daysOfWeek || []);
+
     db.execute(
       `UPDATE recurring_rules
-       SET day_of_month = ?, is_daily = ?, start_date = ?, category_type = ?, amount = ?, merchant = ?, payment_type = ?, card_company = ?, installment_type = ?
+       SET day_of_month = ?, is_daily = ?, repeat_type = ?, days_of_week = ?, start_date = ?, category_type = ?, amount = ?, merchant = ?, payment_type = ?, card_company = ?, installment_type = ?
        WHERE id = ?;`,
       [
         rule.dayOfMonth,
         rule.isDaily ? 1 : 0,
+        repeatType,
+        daysOfWeekJson,
         startDate,
         rule.categoryType,
         rule.amount,
@@ -59,18 +69,33 @@ export const recurringDao = {
     const db = getDb();
     const result = db.execute('SELECT * FROM recurring_rules ORDER BY day_of_month ASC;');
     const rows = result.rows?._array || [];
-    return rows.map((row: any) => ({
-      id: row.id,
-      dayOfMonth: row.day_of_month,
-      isDaily: Boolean(row.is_daily),
-      startDate: row.start_date || dayjs().format('YYYY-MM-DD'),
-      categoryType: row.category_type,
-      amount: row.amount,
-      merchant: row.merchant,
-      paymentType: row.payment_type,
-      cardCompany: row.card_company || undefined,
-      installmentType: row.installment_type,
-      createdAt: row.created_at,
-    }));
+    return rows.map((row: any) => {
+      let daysOfWeek: number[] = [];
+      try {
+        if (row.days_of_week) {
+          daysOfWeek = JSON.parse(row.days_of_week);
+        }
+      } catch (e) {
+        daysOfWeek = [];
+      }
+
+      const repeatType: RepeatType = (row.repeat_type as RepeatType) || (row.is_daily ? 'DAILY' : 'MONTHLY_DAY');
+
+      return {
+        id: row.id,
+        dayOfMonth: row.day_of_month,
+        isDaily: Boolean(row.is_daily),
+        repeatType,
+        daysOfWeek,
+        startDate: row.start_date || dayjs().format('YYYY-MM-DD'),
+        categoryType: row.category_type,
+        amount: row.amount,
+        merchant: row.merchant,
+        paymentType: row.payment_type,
+        cardCompany: row.card_company || undefined,
+        installmentType: row.installment_type,
+        createdAt: row.created_at,
+      };
+    });
   },
 };

@@ -95,27 +95,27 @@ export const StatisticsScreen = () => {
     // 2. 정기결제/적금 내역 반영 (시작일 이후 AND 오늘 날짜 이하만 누적)
     recurringRules.forEach((rule) => {
       const ruleStartStr = rule.startDate || `${selectedYear}-01-01`;
+      const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
 
-      if (rule.isDaily) {
-        for (let day = 1; day <= daysInMonth; day++) {
-          const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
-          if (
-            dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-            dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
-          ) {
-            if (rule.categoryType === 'EXPENSE') {
-              expense += rule.amount;
-            } else if (rule.categoryType === 'SAVINGS') {
-              savings += rule.amount;
-            }
-          }
-        }
-      } else if (rule.dayOfMonth <= daysInMonth) {
-        const rawDate = `${monthPrefix}-${String(rule.dayOfMonth).padStart(2, '0')}`;
+      for (let day = 1; day <= daysInMonth; day++) {
+        const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
+        let applies = false;
+
         if (
           dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
           dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
         ) {
+          if (repeatType === 'DAILY') {
+            applies = true;
+          } else if (repeatType === 'MONTHLY_DAY') {
+            applies = day === rule.dayOfMonth;
+          } else if (repeatType === 'WEEKLY_DAYS') {
+            const dayOfWeek = dayjs(rawDate).day();
+            applies = (rule.daysOfWeek || []).includes(dayOfWeek);
+          }
+        }
+
+        if (applies) {
           if (rule.categoryType === 'EXPENSE') {
             expense += rule.amount;
           } else if (rule.categoryType === 'SAVINGS') {
@@ -162,28 +162,31 @@ export const StatisticsScreen = () => {
     recurringRules.forEach((rule) => {
       if (rule.categoryType === 'EXPENSE') {
         const ruleStartStr = rule.startDate || `${selectedYear}-01-01`;
+        const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
         const companyName =
           rule.paymentType === 'CARD'
             ? rule.cardCompany || '기타 카드'
             : '💵 현금';
 
-        if (rule.isDaily) {
-          for (let day = 1; day <= daysInMonth; day++) {
-            const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
-            if (
-              dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-              dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
-            ) {
-              companyMap[companyName] = (companyMap[companyName] || 0) + rule.amount;
-              totalMonthExpense += rule.amount;
-            }
-          }
-        } else if (rule.dayOfMonth <= daysInMonth) {
-          const rawDate = `${monthPrefix}-${String(rule.dayOfMonth).padStart(2, '0')}`;
+        for (let day = 1; day <= daysInMonth; day++) {
+          const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
+          let applies = false;
+
           if (
             dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
             dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
           ) {
+            if (repeatType === 'DAILY') {
+              applies = true;
+            } else if (repeatType === 'MONTHLY_DAY') {
+              applies = day === rule.dayOfMonth;
+            } else if (repeatType === 'WEEKLY_DAYS') {
+              const dayOfWeek = dayjs(rawDate).day();
+              applies = (rule.daysOfWeek || []).includes(dayOfWeek);
+            }
+          }
+
+          if (applies) {
             companyMap[companyName] = (companyMap[companyName] || 0) + rule.amount;
             totalMonthExpense += rule.amount;
           }
@@ -224,25 +227,28 @@ export const StatisticsScreen = () => {
     recurringRules.forEach((rule) => {
       if (rule.categoryType === 'SAVINGS') {
         const ruleStartStr = rule.startDate || `${selectedYear}-01-01`;
+        const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
         const name = rule.merchant || '정기 적금';
 
-        if (rule.isDaily) {
-          for (let day = 1; day <= daysInMonth; day++) {
-            const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
-            if (
-              dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-              dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
-            ) {
-              savingsMap[name] = (savingsMap[name] || 0) + rule.amount;
-              totalMonthSavings += rule.amount;
-            }
-          }
-        } else if (rule.dayOfMonth <= daysInMonth) {
-          const rawDate = `${monthPrefix}-${String(rule.dayOfMonth).padStart(2, '0')}`;
+        for (let day = 1; day <= daysInMonth; day++) {
+          const rawDate = `${monthPrefix}-${String(day).padStart(2, '0')}`;
+          let applies = false;
+
           if (
             dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
             dayjs(rawDate).isSameOrBefore(dayjs(todayStr), 'day')
           ) {
+            if (repeatType === 'DAILY') {
+              applies = true;
+            } else if (repeatType === 'MONTHLY_DAY') {
+              applies = day === rule.dayOfMonth;
+            } else if (repeatType === 'WEEKLY_DAYS') {
+              const dayOfWeek = dayjs(rawDate).day();
+              applies = (rule.daysOfWeek || []).includes(dayOfWeek);
+            }
+          }
+
+          if (applies) {
             savingsMap[name] = (savingsMap[name] || 0) + rule.amount;
             totalMonthSavings += rule.amount;
           }

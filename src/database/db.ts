@@ -37,6 +37,8 @@ export const initDatabase = (): void => {
       id TEXT PRIMARY KEY NOT NULL,
       day_of_month INTEGER NOT NULL,
       is_daily BOOLEAN DEFAULT 0,
+      repeat_type TEXT,
+      days_of_week TEXT,
       start_date TEXT,
       category_type TEXT NOT NULL,
       amount INTEGER NOT NULL,
@@ -73,5 +75,13 @@ export const initDatabase = (): void => {
 
   try {
     db.execute('ALTER TABLE recurring_rules ADD COLUMN start_date TEXT;');
+  } catch (e) {}
+
+  try {
+    db.execute('ALTER TABLE recurring_rules ADD COLUMN repeat_type TEXT;');
+  } catch (e) {}
+
+  try {
+    db.execute('ALTER TABLE recurring_rules ADD COLUMN days_of_week TEXT;');
   } catch (e) {}
 };

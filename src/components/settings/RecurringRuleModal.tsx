@@ -16,6 +16,7 @@ import {
   CategoryType,
   PaymentType,
   InstallmentType,
+  RepeatType,
 } from '../../types/budget';
 import { formatNumberWithComma, parseNumberFromComma } from '../../utils/budgetUtils';
 
@@ -39,6 +40,16 @@ const CARD_COMPANIES = [
   '기타',
 ];
 
+const DAYS_OF_WEEK_OPTIONS = [
+  { id: 1, label: '월' },
+  { id: 2, label: '화' },
+  { id: 3, label: '수' },
+  { id: 4, label: '목' },
+  { id: 5, label: '금' },
+  { id: 6, label: '토' },
+  { id: 0, label: '일' },
+];
+
 export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
   visible,
   initialData,
@@ -49,7 +60,8 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
 
   const [startDate, setStartDate] = useState(todayStr);
   const [calendarVisible, setCalendarVisible] = useState(false);
-  const [isDaily, setIsDaily] = useState(false);
+  const [repeatType, setRepeatType] = useState<RepeatType>('MONTHLY_DAY');
+  const [selectedDaysOfWeek, setSelectedDaysOfWeek] = useState<number[]>([1, 2, 3, 4]); // 기본값 월~목
   const [dayStr, setDayStr] = useState('1');
   const [categoryType, setCategoryType] = useState<CategoryType>('EXPENSE');
   const [amountStr, setAmountStr] = useState('');
@@ -62,7 +74,8 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
   useEffect(() => {
     if (initialData) {
       setStartDate(initialData.startDate || todayStr);
-      setIsDaily(Boolean(initialData.isDaily));
+      setRepeatType(initialData.repeatType || (initialData.isDaily ? 'DAILY' : 'MONTHLY_DAY'));
+      setSelectedDaysOfWeek(initialData.daysOfWeek && initialData.daysOfWeek.length > 0 ? initialData.daysOfWeek : [1, 2, 3, 4]);
       setDayStr(String(initialData.dayOfMonth || 1));
       setCategoryType(initialData.categoryType);
       setAmountStr(formatNumberWithComma(initialData.amount));
@@ -85,7 +98,8 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
       setInstallmentType(initialData.installmentType);
     } else {
       setStartDate(todayStr);
-      setIsDaily(false);
+      setRepeatType('MONTHLY_DAY');
+      setSelectedDaysOfWeek([1, 2, 3, 4]);
       setDayStr('1');
       setCategoryType('EXPENSE');
       setAmountStr('');
@@ -96,6 +110,14 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
       setInstallmentType('LUMP_SUM');
     }
   }, [initialData, visible]);
+
+  const toggleDayOfWeek = (dayId: number) => {
+    if (selectedDaysOfWeek.includes(dayId)) {
+      setSelectedDaysOfWeek(selectedDaysOfWeek.filter((d) => d !== dayId));
+    } else {
+      setSelectedDaysOfWeek([...selectedDaysOfWeek, dayId].sort((a, b) => a - b));
+    }
+  };
 
   const handleCategoryTypeChange = (cat: CategoryType) => {
     setCategoryType(cat);
@@ -115,8 +137,13 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
 
   const handleSave = () => {
     const dayOfMonth = parseInt(dayStr, 10);
-    if (!isDaily && (isNaN(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31)) {
+    if (repeatType === 'MONTHLY_DAY' && (isNaN(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31)) {
       Alert.alert('알림', '유효한 지정일(1~31)을 입력해 주세요.');
+      return;
+    }
+
+    if (repeatType === 'WEEKLY_DAYS' && selectedDaysOfWeek.length === 0) {
+      Alert.alert('알림', '최소 하나 이상의 요일을 선택해 주세요.');
       return;
     }
 
@@ -141,8 +168,10 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
 
     const rule: RecurringRule = {
       id: initialData ? initialData.id : String(Date.now()),
-      dayOfMonth: isDaily ? 1 : dayOfMonth,
-      isDaily,
+      dayOfMonth: repeatType === 'MONTHLY_DAY' ? dayOfMonth : 1,
+      isDaily: repeatType === 'DAILY',
+      repeatType,
+      daysOfWeek: repeatType === 'WEEKLY_DAYS' ? selectedDaysOfWeek : [],
       startDate,
       categoryType,
       amount,
@@ -180,22 +209,22 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
               <Text style={styles.startDateBtnText}>📅 시작일: {startDate} (터치하여 변경)</Text>
             </TouchableOpacity>
 
-            {/* 반복 주기 선택: 매일 vs 매월 지정일 */}
+            {/* 반복 주기 선택: 매월 지정일 vs 매일 반복 vs 특정 요일 선택 */}
             <Text style={styles.label}>반복 주기 설정</Text>
-            <View style={styles.row}>
+            <View style={styles.repeatTypeContainer}>
               <TouchableOpacity
                 style={[
-                  styles.optionBtn,
-                  !isDaily && styles.selectedOptionBtn,
+                  styles.repeatTypeBtn,
+                  repeatType === 'MONTHLY_DAY' && styles.selectedOptionBtn,
                 ]}
                 activeOpacity={0.7}
                 delayPressIn={0}
-                onPress={() => setIsDaily(false)}
+                onPress={() => setRepeatType('MONTHLY_DAY')}
               >
                 <Text
                   style={[
                     styles.optionText,
-                    !isDaily && styles.selectedOptionText,
+                    repeatType === 'MONTHLY_DAY' && styles.selectedOptionText,
                   ]}
                 >
                   📅 매월 지정일
@@ -204,26 +233,45 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
 
               <TouchableOpacity
                 style={[
-                  styles.optionBtn,
-                  isDaily && styles.selectedOptionBtn,
+                  styles.repeatTypeBtn,
+                  repeatType === 'DAILY' && styles.selectedOptionBtn,
                 ]}
                 activeOpacity={0.7}
                 delayPressIn={0}
-                onPress={() => setIsDaily(true)}
+                onPress={() => setRepeatType('DAILY')}
               >
                 <Text
                   style={[
                     styles.optionText,
-                    isDaily && styles.selectedOptionText,
+                    repeatType === 'DAILY' && styles.selectedOptionText,
                   ]}
                 >
                   🔁 매일 반복
                 </Text>
               </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.repeatTypeBtn,
+                  repeatType === 'WEEKLY_DAYS' && styles.selectedOptionBtn,
+                ]}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={() => setRepeatType('WEEKLY_DAYS')}
+              >
+                <Text
+                  style={[
+                    styles.optionText,
+                    repeatType === 'WEEKLY_DAYS' && styles.selectedOptionText,
+                  ]}
+                >
+                  🗓️ 특정 요일
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            {/* 지정일 (매일 선택 시 비활성화) */}
-            {!isDaily ? (
+            {/* 조건별 서브 설정 */}
+            {repeatType === 'MONTHLY_DAY' && (
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>매월 지정일 (1 ~ 31일)</Text>
                 <TextInput
@@ -237,11 +285,45 @@ export const RecurringRuleModal: React.FC<RecurringRuleModalProps> = ({
                   disableFullscreenUI={true}
                 />
               </View>
-            ) : (
+            )}
+
+            {repeatType === 'DAILY' && (
               <View style={styles.dailyNoticeBox}>
                 <Text style={styles.dailyNoticeText}>
                   ※ '매일' 선택 시 시작일부터 매일 설정된 금액이 자동으로 반영됩니다.
                 </Text>
+              </View>
+            )}
+
+            {repeatType === 'WEEKLY_DAYS' && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>반복 요일 다중 선택 (터치하여 선택/해제)</Text>
+                <View style={styles.dayOfWeekRow}>
+                  {DAYS_OF_WEEK_OPTIONS.map((item) => {
+                    const isSelected = selectedDaysOfWeek.includes(item.id);
+                    return (
+                      <TouchableOpacity
+                        key={item.id}
+                        activeOpacity={0.7}
+                        delayPressIn={0}
+                        style={[
+                          styles.dayOfWeekChip,
+                          isSelected && styles.selectedDayOfWeekChip,
+                        ]}
+                        onPress={() => toggleDayOfWeek(item.id)}
+                      >
+                        <Text
+                          style={[
+                            styles.dayOfWeekChipText,
+                            isSelected && styles.selectedDayOfWeekChipText,
+                          ]}
+                        >
+                          {item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
             )}
 
@@ -518,6 +600,44 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#1565C0',
   },
+  repeatTypeContainer: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  repeatTypeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  dayOfWeekRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 4,
+  },
+  dayOfWeekChip: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F5',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    alignItems: 'center',
+  },
+  selectedDayOfWeekChip: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#2196F3',
+  },
+  dayOfWeekChipText: {
+    fontSize: 13,
+    color: '#616161',
+  },
+  selectedDayOfWeekChipText: {
+    color: '#1976D2',
+    fontWeight: 'bold',
+  },
   inputGroup: {
     marginTop: 2,
   },
@@ -551,7 +671,7 @@ const styles = StyleSheet.create({
     borderColor: '#EEEEEE',
   },
   optionText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#666666',
   },
   selectedOptionText: {

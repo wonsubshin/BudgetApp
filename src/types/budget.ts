@@ -2,6 +2,7 @@ export type CategoryType = 'EXPENSE' | 'SAVINGS';
 export type PaymentType = 'CARD' | 'CASH';
 export type InstallmentType = 'LUMP_SUM' | 'INSTALLMENT';
 export type ViewMode = 'MONTHLY' | 'WEEKLY';
+export type RepeatType = 'MONTHLY_DAY' | 'DAILY' | 'WEEKLY_DAYS';
 
 export interface Transaction {
   id: string;
@@ -21,6 +22,8 @@ export interface RecurringRule {
   id: string;
   dayOfMonth: number; // 1 ~ 31
   isDaily?: boolean; // 매일 반복 여부
+  repeatType?: RepeatType; // 'MONTHLY_DAY' | 'DAILY' | 'WEEKLY_DAYS'
+  daysOfWeek?: number[]; // [1, 2, 3, 4] -> 1:월, 2:화, 3:수, 4:목, 5:금, 6:토, 0:일
   startDate?: string; // 정기결제 시작일 (YYYY-MM-DD)
   categoryType: CategoryType;
   amount: number;
