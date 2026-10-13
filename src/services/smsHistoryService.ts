@@ -1,5 +1,4 @@
-import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
-import dayjs from 'dayjs';
+import { NativeModules, PermissionsAndroid, Platform, Alert } from 'react-native';
 
 const { SmsHistoryParserModule } = NativeModules;
 
@@ -7,33 +6,36 @@ export const syncSmsHistoryForDate = async (targetDateStr?: string): Promise<num
   if (Platform.OS !== 'android') return 0;
 
   try {
-    const dateToSync = targetDateStr || dayjs().format('YYYY-MM-DD');
+    const dateToSync = targetDateStr || 'ALL';
 
-    // READ_SMS 권한 확인 및 요청
-    const hasPermission = await PermissionsAndroid.check(
+    // READ_SMS 및 RECEIVE_SMS 권한 확인 및 요청
+    const hasReadPermission = await PermissionsAndroid.check(
       PermissionsAndroid.PERMISSIONS.READ_SMS
     );
 
-    if (!hasPermission) {
+    if (!hasReadPermission) {
       const granted = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.READ_SMS,
         {
           title: 'SMS 읽기 권한 요청',
-          message: `${dateToSync} 닉네임 설정일의 카드 결제 문자를 분석하여 가계부에 자동 등록하기 위해 권한이 필요합니다.`,
+          message: '수신함의 카드 결제 문자를 분석하여 가계부에 자동 등록하기 위해 SMS 읽기 권한이 필요합니다.',
           buttonPositive: '허용',
           buttonNegative: '거부',
         }
       );
 
       if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-        console.log('⚠️ SMS READ 권한 거부됨');
+        Alert.alert(
+          '권한 필요',
+          'SMS 읽기 권한이 거부되어 수신함 문자를 분석할 수 없습니다.\n[스마트폰 설정 -> 애플리케이션 -> BudgetApp -> 권한]에서 SMS 권한을 허용해 주세요.'
+        );
         return 0;
       }
     }
 
     if (SmsHistoryParserModule && typeof SmsHistoryParserModule.syncSmsHistoryForDate === 'function') {
       const parsedCount: number = await SmsHistoryParserModule.syncSmsHistoryForDate(dateToSync);
-      console.log(`📱 ${dateToSync} SMS history synced count:`, parsedCount);
+      console.log(`📱 [SMS History Sync] ${dateToSync} parsed count:`, parsedCount);
       return parsedCount;
     }
   } catch (err) {

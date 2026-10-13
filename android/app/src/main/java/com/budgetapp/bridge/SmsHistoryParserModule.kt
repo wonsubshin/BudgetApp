@@ -23,50 +23,62 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
         try {
             val contentResolver: ContentResolver = reactContext.contentResolver
 
-            // 삼성 갤럭시 등 다양한 안드로이드 단말 호환성을 위해 content://sms URI 사용
-            val uri = Uri.parse("content://sms")
-
-            val cursor = contentResolver.query(
-                uri,
-                arrayOf("body", "date"),
-                null,
-                null,
-                "date DESC LIMIT 300"
+            // 삼성 갤럭시 RCS/MMS/SMS 수신함 통합 호환 URI 목록
+            val urisToQuery = listOf(
+                Uri.parse("content://sms"),
+                Uri.parse("content://sms/inbox"),
+                Uri.parse("content://mms-sms/conversations")
             )
 
             var parsedCount = 0
+            val processedBodies = HashSet<String>()
 
-            cursor?.use {
-                val bodyIndex = it.getColumnIndex("body")
-                val dateIndex = it.getColumnIndex("date")
+            for (uri in urisToQuery) {
+                try {
+                    val cursor = contentResolver.query(
+                        uri,
+                        arrayOf("body", "date"),
+                        null,
+                        null,
+                        "date DESC LIMIT 300"
+                    )
 
-                while (it.moveToNext()) {
-                    val body = if (bodyIndex != -1) it.getString(bodyIndex) ?: "" else ""
-                    val smsTime = if (dateIndex != -1) it.getLong(dateIndex) else 0L
+                    cursor?.use {
+                        val bodyIndex = it.getColumnIndex("body")
+                        val dateIndex = it.getColumnIndex("date")
 
-                    if (body.isNotBlank()) {
-                        val fallbackTime = if (smsTime > 0) smsTime else System.currentTimeMillis()
-                        val result = FinancialTextParser.parse(body, fallbackTime)
+                        while (it.moveToNext()) {
+                            val body = if (bodyIndex != -1) it.getString(bodyIndex) ?: "" else ""
+                            val smsTime = if (dateIndex != -1) it.getLong(dateIndex) else 0L
 
-                        if (result.isPayment) {
-                            val smsReceivedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(fallbackTime))
+                            if (body.isNotBlank() && !processedBodies.contains(body)) {
+                                processedBodies.add(body)
+                                val fallbackTime = if (smsTime > 0) smsTime else System.currentTimeMillis()
+                                val result = FinancialTextParser.parse(body, fallbackTime)
 
-                            // 파싱된 결제 날짜 또는 SMS 수신일이 targetDateStr과 일치하는 경우 자동 등록
-                            if (targetDateStr.isBlank() || result.dateStr == targetDateStr || smsReceivedDateStr == targetDateStr) {
-                                FinancialParserModule.emitPaymentEvent(
-                                    dateStr = result.dateStr,
-                                    amount = result.amount,
-                                    merchant = result.merchant,
-                                    paymentType = "CARD",
-                                    cardCompany = result.cardCompany,
-                                    installmentType = result.installmentType,
-                                    installmentMonths = result.installmentMonths,
-                                    createdAtStr = result.createdAtStr
-                                )
-                                parsedCount++
+                                if (result.isPayment) {
+                                    val smsReceivedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(fallbackTime))
+
+                                    // targetDateStr이 없거나 ALL이거나, 파싱 날짜/수신 날짜가 일치하는 경우 자동 등록
+                                    if (targetDateStr.isBlank() || targetDateStr == "ALL" || result.dateStr == targetDateStr || smsReceivedDateStr == targetDateStr) {
+                                        FinancialParserModule.emitPaymentEvent(
+                                            dateStr = result.dateStr,
+                                            amount = result.amount,
+                                            merchant = result.merchant,
+                                            paymentType = "CARD",
+                                            cardCompany = result.cardCompany,
+                                            installmentType = result.installmentType,
+                                            installmentMonths = result.installmentMonths,
+                                            createdAtStr = result.createdAtStr
+                                        )
+                                        parsedCount++
+                                    }
+                                }
                             }
                         }
                     }
+                } catch (e: Exception) {
+                    // 특정 URI 접근 예외 발생 시 다음 URI 계속 탐색
                 }
             }
 
