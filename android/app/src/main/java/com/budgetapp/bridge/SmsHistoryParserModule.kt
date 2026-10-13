@@ -31,7 +31,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 arrayOf("body", "date"),
                 null,
                 null,
-                "date DESC LIMIT 200"
+                "date DESC LIMIT 300"
             )
 
             var parsedCount = 0
@@ -44,7 +44,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                     val body = if (bodyIndex != -1) it.getString(bodyIndex) ?: "" else ""
                     val smsTime = if (dateIndex != -1) it.getLong(dateIndex) else 0L
 
-                    if (body.isNotBlank() && body.contains("카드")) {
+                    if (body.isNotBlank()) {
                         val fallbackTime = if (smsTime > 0) smsTime else System.currentTimeMillis()
                         val result = FinancialTextParser.parse(body, fallbackTime)
 
