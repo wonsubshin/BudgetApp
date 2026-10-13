@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Modal,
   Linking,
   Platform,
 } from 'react-native';
@@ -22,7 +23,10 @@ import {
 import { recurringDao } from '../database/recurringDao';
 import { holidayDao } from '../database/holidayDao';
 import { holidayService } from '../services/holidayService';
-import { syncSmsHistoryForDate } from '../services/smsHistoryService';
+import {
+  syncSmsHistoryForDateWithLog,
+  copyLogToClipboard,
+} from '../services/smsHistoryService';
 import { RecurringRuleModal } from '../components/settings/RecurringRuleModal';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
@@ -46,6 +50,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [customHolidays, setCustomHolidays] = useState<Holiday[]>([]);
   const [customDate, setCustomDate] = useState('');
   const [customName, setCustomName] = useState('');
+
+  // 디버깅 로그 모달 상태
+  const [debugModalVisible, setDebugModalVisible] = useState(false);
+  const [debugLogText, setDebugLogText] = useState('');
 
   const loadSettingsData = useCallback(() => {
     setRecurringRules(recurringDao.getAllRecurringRules());
@@ -84,16 +92,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     loadSettingsData();
   };
 
-  // 실시간 수신함 동기화 실행
+  // 실시간 수신함 동기화 실행 (진단 로그 모달 출력)
   const handleSyncSmsHistory = async () => {
     setIsSyncing(true);
-    const count = await syncSmsHistoryForDate('ALL');
+    const result = await syncSmsHistoryForDateWithLog('ALL');
     setIsSyncing(false);
 
-    if (count > 0) {
-      Alert.alert('동기화 완료', `수신함에서 카드 결제 내역 ${count}건을 새로 찾아 가계부에 실시간 반영했습니다!`);
+    setDebugLogText(result.debugLog);
+    setDebugModalVisible(true);
+  };
+
+  const handleCopyDebugLog = async () => {
+    const success = await copyLogToClipboard(debugLogText);
+    if (success) {
+      Alert.alert('복사 완료', '진단 로그가 클립보드에 복사되었습니다! 답변 창에 붙여넣어 주세요.');
     } else {
-      Alert.alert('동기화 완료', '수신함에서 새로 등록할 신규 카드 결제 내역이 없습니다.');
+      Alert.alert('안내', '클립보드 복사 중 오류가 발생했습니다.');
     }
   };
 
@@ -247,7 +261,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {isSyncing ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.syncBtnText}>📱 수신함 결제 내역 실시간 동기화 실행</Text>
+            <Text style={styles.syncBtnText}>📱 수신함 결제 내역 분석 실행 (로그 출력)</Text>
           )}
         </TouchableOpacity>
 
@@ -382,6 +396,52 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         onClose={() => setModalVisible(false)}
         onSave={handleSaveRule}
       />
+
+      {/* 디버그 로그 모달 (클립보드 전체 복사 버튼 지원) */}
+      <Modal
+        visible={debugModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDebugModalVisible(false)}
+      >
+        <View style={styles.debugOverlay}>
+          <View style={styles.debugContainer}>
+            <Text style={styles.debugTitle}>📱 결제 문자 동기화 진단 로그</Text>
+            <Text style={styles.debugSubText}>
+              하단의 [📋 진단 로그 전체 복사] 버튼을 누르면 전체 로그가 클립보드에 바로 복사됩니다!
+            </Text>
+
+            <TextInput
+              style={styles.debugInput}
+              multiline
+              editable={false}
+              value={debugLogText}
+              selectTextOnFocus
+              showSoftInputOnFocus={false}
+            />
+
+            <View style={styles.debugButtonRow}>
+              <TouchableOpacity
+                style={styles.copyDebugBtn}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={handleCopyDebugLog}
+              >
+                <Text style={styles.copyDebugBtnText}>📋 진단 로그 전체 복사</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.closeDebugBtn}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={() => setDebugModalVisible(false)}
+              >
+                <Text style={styles.closeDebugBtnText}>닫기</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 };
@@ -537,5 +597,66 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#D32F2F',
     fontWeight: '600',
+  },
+  /* 디버깅 모달 스타일 */
+  debugOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  debugContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    maxHeight: '88%',
+  },
+  debugTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#212121',
+    marginBottom: 6,
+  },
+  debugSubText: {
+    fontSize: 12,
+    color: '#666666',
+    marginBottom: 12,
+  },
+  debugInput: {
+    backgroundColor: '#1E1E1E',
+    color: '#4CAF50',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 12,
+    fontFamily: 'monospace',
+    height: 320,
+    textAlignVertical: 'top',
+  },
+  debugButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 14,
+  },
+  copyDebugBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+  },
+  copyDebugBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  closeDebugBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#2196F3',
+    borderRadius: 8,
+  },
+  closeDebugBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });
