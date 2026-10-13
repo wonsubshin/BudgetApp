@@ -37,7 +37,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun syncSmsHistoryWithLog(targetDateStr: String, promise: Promise) {
         val logBuilder = StringBuilder()
-        logBuilder.append("=== BudgetApp SMS & MMS Sync Diagnostic Log ===\n")
+        logBuilder.append("=== BudgetApp SMS & Messages App Storage Sync Diagnostic Log ===\n")
         logBuilder.append("Device: ").append(Build.MANUFACTURER ?: "").append(" ").append(Build.MODEL ?: "").append("\n")
         logBuilder.append("Android SDK: ").append(Build.VERSION.SDK_INT.toString()).append("\n")
         logBuilder.append("Target Date Filter: ").append(if (targetDateStr.isBlank()) "ALL" else targetDateStr).append("\n\n")
@@ -211,6 +211,82 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 }
             } catch (e: Exception) {
                 logBuilder.append("Error querying SMS: ").append(e.message ?: "").append("\n")
+            }
+
+            // 3. 삼성 기본 '메세지' 어플 대화 저장소 조회 (content://mms-sms/complete-conversations)
+            val conversationUris = listOf(
+                Pair("content://mms-sms/complete-conversations", Uri.parse("content://mms-sms/complete-conversations")),
+                Pair("content://mms-sms/conversations", Uri.parse("content://mms-sms/conversations"))
+            )
+
+            for (pair in conversationUris) {
+                val uriName = pair.first
+                val uri = pair.second
+
+                logBuilder.append("\n--- 3. Querying Messages App Storage (").append(uriName).append(") ---\n")
+                try {
+                    val cursor = contentResolver.query(
+                        uri,
+                        arrayOf("body", "date"),
+                        null,
+                        null,
+                        "date DESC LIMIT 150"
+                    )
+
+                    if (cursor == null) {
+                        logBuilder.append("Cursor is NULL for ").append(uriName).append("\n")
+                        continue
+                    }
+
+                    logBuilder.append("Conversation row count: ").append(cursor.count.toString()).append("\n")
+                    cursor.use { c ->
+                        val bodyIndex = c.getColumnIndex("body")
+                        val dateIndex = c.getColumnIndex("date")
+
+                        while (c.moveToNext()) {
+                            val body = if (bodyIndex != -1) c.getString(bodyIndex) ?: "" else ""
+                            var msgTime = if (dateIndex != -1) c.getLong(dateIndex) else 0L
+
+                            if (body.isBlank()) continue
+                            if (processedBodies.contains(body)) continue
+                            processedBodies.add(body)
+                            scannedCount++
+
+                            if (msgTime in 1..9999999999L) {
+                                msgTime *= 1000L
+                            }
+
+                            val fallbackTime = if (msgTime > 0) msgTime else System.currentTimeMillis()
+                            val msgReceivedDateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTime))
+
+                            val result = FinancialTextParser.parse(body, fallbackTime)
+                            if (result.isPayment) {
+                                val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" || result.dateStr == targetDateStr || msgReceivedDateStr.startsWith(targetDateStr)
+                                logBuilder.append("[Conv Match Found] Time: ").append(msgReceivedDateStr)
+                                    .append(" | Card: ").append(result.cardCompany)
+                                    .append(" | Amount: ").append(result.amount.toString())
+                                    .append(" | Merchant: ").append(result.merchant)
+                                    .append(" | DateFilterMatch: ").append(matchDate.toString()).append("\n")
+
+                                if (matchDate) {
+                                    FinancialParserModule.emitPaymentEvent(
+                                        dateStr = result.dateStr,
+                                        amount = result.amount,
+                                        merchant = result.merchant,
+                                        paymentType = "CARD",
+                                        cardCompany = result.cardCompany,
+                                        installmentType = result.installmentType,
+                                        installmentMonths = result.installmentMonths,
+                                        createdAtStr = result.createdAtStr
+                                    )
+                                    parsedCount++
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    logBuilder.append("Error querying ").append(uriName).append(": ").append(e.message ?: "").append("\n")
+                }
             }
 
             // 푸시 알림 히스토리 분석
