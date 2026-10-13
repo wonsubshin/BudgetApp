@@ -79,6 +79,7 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
   const [viewMode, setMode] = useState<ViewMode>(getViewMode());
   const [dailyExpenseTotals, setDailyExpenseTotals] = useState<{ [date: string]: number }>({});
   const [dailySavingsTotals, setDailySavingsTotals] = useState<{ [date: string]: number }>({});
+  const [thisMonthInstallmentTotal, setThisMonthInstallmentTotal] = useState<number>(0);
   const [monthlyBudget, setBudget] = useState(getMonthlyBudget());
 
   // 주간 뷰를 위한 선택된 주 기준 날짜
@@ -97,17 +98,24 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
 
     const expenseTotals: { [date: string]: number } = {};
     const savingsTotals: { [date: string]: number } = {};
+    let installmentSum = 0;
 
-    // DB 거래 내역 반영
+    // DB 거래 내역 반영 (할부인 경우 월 분할 청구액을 쓴돈으로 반영)
     txs.forEach((tx) => {
       if (tx.categoryType === 'EXPENSE') {
-        expenseTotals[tx.date] = (expenseTotals[tx.date] || 0) + tx.amount;
+        if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
+          const monthlyAmount = Math.round(tx.amount / tx.installmentMonths);
+          expenseTotals[tx.date] = (expenseTotals[tx.date] || 0) + monthlyAmount;
+          installmentSum += monthlyAmount;
+        } else {
+          expenseTotals[tx.date] = (expenseTotals[tx.date] || 0) + tx.amount;
+        }
       } else if (tx.categoryType === 'SAVINGS') {
         savingsTotals[tx.date] = (savingsTotals[tx.date] || 0) + tx.amount;
       }
     });
 
-    // 정기 결제 규칙 반영 (시작일 & 매일/매월지정일/특정요일 다중선택 체크)
+    // 정기 결제 규칙 반영
     recurringRules.forEach((rule) => {
       const ruleStartStr = rule.startDate || `${currentYearMonth}-01`;
       const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
@@ -140,6 +148,7 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
 
     setDailyExpenseTotals(expenseTotals);
     setDailySavingsTotals(savingsTotals);
+    setThisMonthInstallmentTotal(installmentSum);
   }, [currentYearMonth]);
 
   // 화면 활성화(포커스) 및 거래/정기결제 변경 이벤트 발생 시 실시간 자동 재로드
@@ -237,22 +246,32 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
       />
 
       {viewMode === 'MONTHLY' ? (
-        <Calendar
-          current={`${currentYearMonth}-01`}
-          onMonthChange={(month: any) => {
-            const ym = `${month.year}-${String(month.month).padStart(2, '0')}`;
-            setCurrentYearMonth(ym);
-          }}
-          dayComponent={customDayComponent}
-          theme={{
-            backgroundColor: '#FFFFFF',
-            calendarBackground: '#FFFFFF',
-            textSectionTitleColor: '#666666',
-            selectedDayBackgroundColor: '#2196F3',
-            todayTextColor: '#2196F3',
-            arrowColor: '#2196F3',
-          }}
-        />
+        <ScrollView style={{ flex: 1 }}>
+          <Calendar
+            current={`${currentYearMonth}-01`}
+            onMonthChange={(month: any) => {
+              const ym = `${month.year}-${String(month.month).padStart(2, '0')}`;
+              setCurrentYearMonth(ym);
+            }}
+            dayComponent={customDayComponent}
+            theme={{
+              backgroundColor: '#FFFFFF',
+              calendarBackground: '#FFFFFF',
+              textSectionTitleColor: '#666666',
+              selectedDayBackgroundColor: '#2196F3',
+              todayTextColor: '#2196F3',
+              arrowColor: '#2196F3',
+            }}
+          />
+
+          {/* 월간 뷰 하단: 이번 달 총 할부 청구금액 카드 */}
+          <View style={styles.installmentSummaryCard}>
+            <Text style={styles.installmentCardTitle}>💳 이번 달 총 할부 청구금액</Text>
+            <Text style={styles.installmentCardAmount}>
+              {thisMonthInstallmentTotal.toLocaleString()} 원
+            </Text>
+          </View>
+        </ScrollView>
       ) : (
         <ScrollView
           style={styles.weeklyScrollView}
@@ -418,6 +437,26 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
     marginTop: 1,
+  },
+  installmentSummaryCard: {
+    margin: 16,
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    elevation: 2,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2196F3',
+  },
+  installmentCardTitle: {
+    fontSize: 14,
+    color: '#666666',
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  installmentCardAmount: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1565C0',
   },
   /* 주간 뷰 스타일 */
   weeklyScrollView: {

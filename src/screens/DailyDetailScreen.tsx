@@ -166,76 +166,87 @@ export const DailyDetailScreen = ({ route }: any) => {
     loadTransactions();
   };
 
+  // 총 지출 계산 시 할부인 경우 이번 달 분할 청구액(원금/할부개월수)으로 계산
   const totalExpense = transactions
     .filter((tx) => tx.categoryType === 'EXPENSE')
-    .reduce((sum, tx) => sum + tx.amount, 0);
+    .reduce((sum, tx) => {
+      if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
+        return sum + Math.round(tx.amount / tx.installmentMonths);
+      }
+      return sum + tx.amount;
+    }, 0);
 
   const totalSavings = transactions
     .filter((tx) => tx.categoryType === 'SAVINGS')
     .reduce((sum, tx) => sum + tx.amount, 0);
 
-  const renderItem = ({ item }: { item: Transaction }) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.badgeRow}>
-          <Text
-            style={[
-              styles.categoryBadge,
-              item.categoryType === 'EXPENSE'
-                ? styles.expenseBadge
-                : styles.savingsBadge,
-            ]}
-          >
-            {item.categoryType === 'EXPENSE' ? '지출' : '적금'}
+  const renderItem = ({ item }: { item: Transaction }) => {
+    const isInstallment = item.installmentType === 'INSTALLMENT' && item.installmentMonths > 1;
+    const monthlyInstallmentAmount = isInstallment ? Math.round(item.amount / item.installmentMonths) : item.amount;
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <View style={styles.badgeRow}>
+            <Text
+              style={[
+                styles.categoryBadge,
+                item.categoryType === 'EXPENSE'
+                  ? styles.expenseBadge
+                  : styles.savingsBadge,
+              ]}
+            >
+              {item.categoryType === 'EXPENSE' ? '지출' : '적금'}
+            </Text>
+            <Text style={styles.merchantText}>{item.merchant}</Text>
+          </View>
+
+          <Text style={styles.amountText}>
+            {monthlyInstallmentAmount.toLocaleString()} 원
           </Text>
-          <Text style={styles.merchantText}>{item.merchant}</Text>
         </View>
 
-        <Text style={styles.amountText}>
-          {item.amount.toLocaleString()} 원
-        </Text>
+        <View style={styles.cardDetail}>
+          <Text style={styles.metaText}>
+            {item.paymentType === 'CARD'
+              ? `💳 ${item.cardCompany || '카드'}`
+              : '💵 현금'}{' '}
+            |{' '}
+            {isInstallment
+              ? `${item.installmentMonths}개월 할부 (할부 원금 ${item.amount.toLocaleString()}원)`
+              : '일시불'}
+            {item.isRecurring ? ' (정기결제)' : ''}
+          </Text>
+
+          {!item.id.startsWith('recurring_') ? (
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.editBtn}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={() => handleEdit(item)}
+              >
+                <Text style={styles.btnText}>수정</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.deleteBtn}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={() => handleDelete(item.id)}
+              >
+                <Text style={styles.deleteBtnText}>삭제</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.recurringNoticeBadge}>
+              <Text style={styles.recurringNoticeText}>자동 정기 항목</Text>
+            </View>
+          )}
+        </View>
       </View>
-
-      <View style={styles.cardDetail}>
-        <Text style={styles.metaText}>
-          {item.paymentType === 'CARD'
-            ? `💳 ${item.cardCompany || '카드'}`
-            : '💵 현금'}{' '}
-          |{' '}
-          {item.installmentType === 'LUMP_SUM'
-            ? '일시불'
-            : `${item.installmentMonths}개월 할부`}
-          {item.isRecurring ? ' (정기결제)' : ''}
-        </Text>
-
-        {!item.id.startsWith('recurring_') ? (
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={styles.editBtn}
-              activeOpacity={0.7}
-              delayPressIn={0}
-              onPress={() => handleEdit(item)}
-            >
-              <Text style={styles.btnText}>수정</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.deleteBtn}
-              activeOpacity={0.7}
-              delayPressIn={0}
-              onPress={() => handleDelete(item.id)}
-            >
-              <Text style={styles.deleteBtnText}>삭제</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.recurringNoticeBadge}>
-            <Text style={styles.recurringNoticeText}>자동 정기 항목</Text>
-          </View>
-        )}
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>

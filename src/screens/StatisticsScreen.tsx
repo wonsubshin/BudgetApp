@@ -11,7 +11,7 @@ import dayjs from 'dayjs';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import { useFocusEffect } from '@react-navigation/native';
-import { BarChart } from 'react-native-gifted-charts';
+import { BarChart, LineChart } from 'react-native-gifted-charts';
 import { transactionDao } from '../database/transactionDao';
 import { recurringDao } from '../database/recurringDao';
 import { getNicknameCreatedAt } from '../storage/mmkv';
@@ -75,18 +75,23 @@ export const StatisticsScreen = () => {
   // 정기 결제/적금 내역 불러오기
   const recurringRules = recurringDao.getAllRecurringRules();
 
-  // 1~12월 각 월별 총 지출 및 적금 집계 (정기결제/적금은 오늘 날짜 이하만 계산)
+  // 1~12월 각 월별 총 지출 및 적금 집계 (할부인 경우 월 분할 청구액 반영)
   const monthlyExpenseData = Array.from({ length: 12 }, (_, i) => {
     const m = i + 1;
     const monthPrefix = `${selectedYear}-${String(m).padStart(2, '0')}`;
     const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
 
-    // 1. 실제 DB 내역
+    // 1. 실제 DB 내역 (할부 청구액 계산)
     const mtxs = yearTransactions.filter((tx) => tx.date.startsWith(monthPrefix));
 
     let expense = mtxs
       .filter((tx) => tx.categoryType === 'EXPENSE')
-      .reduce((sum, tx) => sum + tx.amount, 0);
+      .reduce((sum, tx) => {
+        if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
+          return sum + Math.round(tx.amount / tx.installmentMonths);
+        }
+        return sum + tx.amount;
+      }, 0);
 
     let savings = mtxs
       .filter((tx) => tx.categoryType === 'SAVINGS')
@@ -128,6 +133,22 @@ export const StatisticsScreen = () => {
     return { month: m, monthName: `${m}월`, expense, savings };
   });
 
+  // 1~12월 월별 할부 청구금액 선 그래프(LineChart) 데이터 계산
+  const lineChartData = Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1;
+    const monthPrefix = `${selectedYear}-${String(m).padStart(2, '0')}`;
+    const mtxs = yearTransactions.filter(
+      (tx) => tx.date.startsWith(monthPrefix) && tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1
+    );
+
+    const totalInstallment = mtxs.reduce(
+      (sum, tx) => sum + Math.round(tx.amount / tx.installmentMonths),
+      0
+    );
+
+    return { value: totalInstallment / 10000, label: `${m}월` };
+  });
+
   // gifted-charts 차트 바 데이터 생성
   const barData = monthlyExpenseData.map((d) => ({
     value: d.expense / 10000, // 만원 단위 표기
@@ -138,7 +159,7 @@ export const StatisticsScreen = () => {
   const totalYearExpense = monthlyExpenseData.reduce((sum, d) => sum + d.expense, 0);
   const totalYearSavings = monthlyExpenseData.reduce((sum, d) => sum + d.savings, 0);
 
-  // 선택된 월의 카드사별 지출 합계 집계 (오늘 날짜 이하 정기결제만 포함)
+  // 선택된 월의 카드사별 지출 합계 집계 (오늘 날짜 이하 정기결제 포함)
   const getCardCompanyStatsForMonth = (monthNum: number) => {
     const monthPrefix = `${selectedYear}-${String(monthNum).padStart(2, '0')}`;
     const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
@@ -154,8 +175,13 @@ export const StatisticsScreen = () => {
         tx.paymentType === 'CARD'
           ? tx.cardCompany || '기타 카드'
           : '💵 현금';
-      companyMap[companyName] = (companyMap[companyName] || 0) + tx.amount;
-      totalMonthExpense += tx.amount;
+
+      const amountToUse = (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1)
+        ? Math.round(tx.amount / tx.installmentMonths)
+        : tx.amount;
+
+      companyMap[companyName] = (companyMap[companyName] || 0) + amountToUse;
+      totalMonthExpense += amountToUse;
     });
 
     // 정기 결제 카드 지출 반영 (오늘 이하 날짜만)
@@ -206,7 +232,7 @@ export const StatisticsScreen = () => {
     return { list: result, totalMonthExpense };
   };
 
-  // 선택된 월의 적금/저축 합계 집계 (지출 표와 동일 양식)
+  // 선택된 월의 적금/저축 합계 집계
   const getSavingsStatsForMonth = (monthNum: number) => {
     const monthPrefix = `${selectedYear}-${String(monthNum).padStart(2, '0')}`;
     const daysInMonth = dayjs(monthPrefix, 'YYYY-MM').daysInMonth();
@@ -281,8 +307,12 @@ export const StatisticsScreen = () => {
         tx.paymentType === 'CARD'
           ? tx.cardCompany || '기타 카드'
           : '💵 현금';
-      companyMap[companyName] = (companyMap[companyName] || 0) + tx.amount;
-      totalExpense += tx.amount;
+      const amountToUse = (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1)
+        ? Math.round(tx.amount / tx.installmentMonths)
+        : tx.amount;
+
+      companyMap[companyName] = (companyMap[companyName] || 0) + amountToUse;
+      totalExpense += amountToUse;
     });
 
     const result = Object.keys(companyMap).map((company) => {
@@ -324,10 +354,17 @@ export const StatisticsScreen = () => {
     const txs = transactionDao.getTransactionsByYear(String(y));
     const expense = txs
       .filter((tx) => tx.categoryType === 'EXPENSE')
-      .reduce((sum, tx) => sum + tx.amount, 0);
+      .reduce((sum, tx) => {
+        if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
+          return sum + Math.round(tx.amount / tx.installmentMonths);
+        }
+        return sum + tx.amount;
+      }, 0);
+
     const savings = txs
       .filter((tx) => tx.categoryType === 'SAVINGS')
       .reduce((sum, tx) => sum + tx.amount, 0);
+
     return { year: `${y}년`, yearNum: y, expense, savings };
   });
 
@@ -416,7 +453,7 @@ export const StatisticsScreen = () => {
       {/* 1. 월별 통계 뷰 */}
       {activeTab === 'MONTHLY' && (
         <View>
-          {/* 차트 */}
+          {/* 지출 막대 차트 */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>📊 1~12월 지출 차트 (단위: 만원)</Text>
             <View style={{ marginTop: 16 }}>
@@ -425,6 +462,29 @@ export const StatisticsScreen = () => {
                 barWidth={16}
                 spacing={12}
                 roundedTop
+                hideRules
+                xAxisThickness={1}
+                yAxisThickness={1}
+                xAxisColor="#E0E0E0"
+                yAxisColor="#E0E0E0"
+                noOfSections={4}
+              />
+            </View>
+          </View>
+
+          {/* 월별 할부금 변화량 선 그래프 (Line Chart) */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>📈 1~12월 월별 할부금 변화량 추이 (단위: 만원)</Text>
+            <View style={{ marginTop: 16 }}>
+              <LineChart
+                data={lineChartData}
+                color="#2196F3"
+                thickness={3}
+                dataPointsColor="#1565C0"
+                dataPointsRadius={5}
+                textColor="#212121"
+                textFontSize={11}
+                curved
                 hideRules
                 xAxisThickness={1}
                 yAxisThickness={1}

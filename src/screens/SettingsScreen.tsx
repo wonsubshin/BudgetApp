@@ -61,6 +61,28 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }, [loadSettingsData])
   );
 
+  const formatRepeatLabel = (rule: RecurringRule): string => {
+    const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
+
+    if (repeatType === 'DAILY') {
+      return '매일';
+    } else if (repeatType === 'WEEKLY_DAYS') {
+      const daysMap: { [key: number]: string } = {
+        1: '월',
+        2: '화',
+        3: '수',
+        4: '목',
+        5: '금',
+        6: '토',
+        0: '일',
+      };
+      const days = (rule.daysOfWeek || []).map((d) => daysMap[d] || '').filter(Boolean);
+      return days.length > 0 ? `매주 (${days.join(', ')})` : '매주';
+    } else {
+      return `매월 ${rule.dayOfMonth}일`;
+    }
+  };
+
   const handleSaveBudget = () => {
     const val = parseNumberFromComma(budgetStr);
     if (isNaN(val) || val <= 0) {
@@ -287,7 +309,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <View key={rule.id} style={styles.itemCard}>
             <View style={{ flex: 1 }}>
               <Text style={styles.itemTitle}>
-                {rule.isDaily ? '매일' : `매월 ${rule.dayOfMonth}일`} | {rule.merchant} (
+                {formatRepeatLabel(rule)} | {rule.merchant} (
                 {rule.categoryType === 'EXPENSE' ? '지출' : '적금'})
               </Text>
               <Text style={styles.itemSub}>
