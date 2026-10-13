@@ -29,8 +29,11 @@ class AppNotificationListener : NotificationListenerService() {
         val title = extras.getCharSequence("android.title")?.toString() ?: ""
         val text = extras.getCharSequence("android.text")?.toString() ?: ""
         val bigText = extras.getCharSequence("android.bigText")?.toString() ?: ""
-        val fullContent = "$title\n$text\n$bigText"
+        val fullContent = "$title\n$text\n$bigText".trim()
 
+        if (fullContent.isBlank()) return
+
+        // 모든 카드사/금융 푸시 알림 실시간 파싱
         val result = FinancialTextParser.parse(fullContent, sbnObj.postTime)
         if (result.isPayment) {
             FinancialParserModule.emitPaymentEvent(
@@ -73,26 +76,28 @@ class AppNotificationListener : NotificationListenerService() {
 
                 for (sbn in activeNotifs) {
                     val postTime = sbn.postTime
-                    if (postTime in startTime..endTime) {
+                    if (targetDateStr == "ALL" || postTime in startTime..endTime) {
                         val extras = sbn.notification.extras
                         val title = extras.getCharSequence("android.title")?.toString() ?: ""
                         val text = extras.getCharSequence("android.text")?.toString() ?: ""
                         val bigText = extras.getCharSequence("android.bigText")?.toString() ?: ""
-                        val fullContent = "$title\n$text\n$bigText"
+                        val fullContent = "$title\n$text\n$bigText".trim()
 
-                        val result = FinancialTextParser.parse(fullContent, postTime)
-                        if (result.isPayment) {
-                            FinancialParserModule.emitPaymentEvent(
-                                dateStr = result.dateStr,
-                                amount = result.amount,
-                                merchant = result.merchant,
-                                paymentType = "CARD",
-                                cardCompany = result.cardCompany,
-                                installmentType = result.installmentType,
-                                installmentMonths = result.installmentMonths,
-                                createdAtStr = result.createdAtStr
-                            )
-                            count++
+                        if (fullContent.isNotBlank()) {
+                            val result = FinancialTextParser.parse(fullContent, postTime)
+                            if (result.isPayment) {
+                                FinancialParserModule.emitPaymentEvent(
+                                    dateStr = result.dateStr,
+                                    amount = result.amount,
+                                    merchant = result.merchant,
+                                    paymentType = "CARD",
+                                    cardCompany = result.cardCompany,
+                                    installmentType = result.installmentType,
+                                    installmentMonths = result.installmentMonths,
+                                    createdAtStr = result.createdAtStr
+                                )
+                                count++
+                            }
                         }
                     }
                 }

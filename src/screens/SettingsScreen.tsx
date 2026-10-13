@@ -8,7 +8,8 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
-  Modal,
+  Linking,
+  Platform,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { useFocusEffect } from '@react-navigation/native';
@@ -17,15 +18,11 @@ import {
   getMonthlyBudget,
   setMonthlyBudget,
   getLastHolidaySync,
-  getNicknameCreatedAt,
 } from '../storage/mmkv';
 import { recurringDao } from '../database/recurringDao';
 import { holidayDao } from '../database/holidayDao';
 import { holidayService } from '../services/holidayService';
-import {
-  syncSmsHistoryForDateWithLog,
-  copyLogToClipboard,
-} from '../services/smsHistoryService';
+import { syncSmsHistoryForDate } from '../services/smsHistoryService';
 import { RecurringRuleModal } from '../components/settings/RecurringRuleModal';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
@@ -49,10 +46,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [customHolidays, setCustomHolidays] = useState<Holiday[]>([]);
   const [customDate, setCustomDate] = useState('');
   const [customName, setCustomName] = useState('');
-
-  // 디버깅 로그 모달 상태
-  const [debugModalVisible, setDebugModalVisible] = useState(false);
-  const [debugLogText, setDebugLogText] = useState('');
 
   const loadSettingsData = useCallback(() => {
     setRecurringRules(recurringDao.getAllRecurringRules());
@@ -91,22 +84,27 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     loadSettingsData();
   };
 
+  // 실시간 수신함 동기화 실행
   const handleSyncSmsHistory = async () => {
-    const nicknameDate = getNicknameCreatedAt();
     setIsSyncing(true);
-    const result = await syncSmsHistoryForDateWithLog(nicknameDate);
+    const count = await syncSmsHistoryForDate('ALL');
     setIsSyncing(false);
 
-    setDebugLogText(result.debugLog);
-    setDebugModalVisible(true);
+    if (count > 0) {
+      Alert.alert('동기화 완료', `수신함에서 카드 결제 내역 ${count}건을 새로 찾아 가계부에 실시간 반영했습니다!`);
+    } else {
+      Alert.alert('동기화 완료', '수신함에서 새로 등록할 신규 카드 결제 내역이 없습니다.');
+    }
   };
 
-  const handleCopyDebugLog = async () => {
-    const success = await copyLogToClipboard(debugLogText);
-    if (success) {
-      Alert.alert('복사 완료', '진단 로그가 클립보드에 복사되었습니다! 답변 창에 붙여넣어 주세요.');
-    } else {
-      Alert.alert('안내', '클립보드 복사 중 오류가 발생했습니다.');
+  // 알림 접근 권한(NotificationListenerService) 설정 화면 열기
+  const handleOpenNotificationAccessSettings = () => {
+    if (Platform.OS === 'android') {
+      try {
+        Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
+      } catch (e) {
+        Alert.alert('안내', '스마트폰 [설정 -> 애플리케이션 -> 특별한 접근 -> 알림 접근 허용]에서 BudgetApp을 허용해 주세요.');
+      }
     }
   };
 
@@ -233,11 +231,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* 3. 닉네임 설정일 결제 문자 자동 동기화 & 진단 */}
+      {/* 3. 결제 문자 / 푸시 수신함 실시간 동기화 */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📱 닉네임 설정일 결제 문자 동기화</Text>
+        <Text style={styles.sectionTitle}>📱 수신함 결제 내역 실시간 동기화</Text>
         <Text style={styles.sectionSub}>
-          닉네임을 설정한 날({getNicknameCreatedAt()})의 카드 결제 문자를 수신함에서 분석하여 가계부에 자동 반영합니다.
+          수신함의 카드 결제 문자 및 알림 푸시를 스캔하여 가계부에 실시간 등록합니다.
         </Text>
         <TouchableOpacity
           style={[styles.syncBtn, { backgroundColor: '#2196F3' }]}
@@ -249,8 +247,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           {isSyncing ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Text style={styles.syncBtnText}>📱 닉네임 설정일 결제 문자 분석 실행 (로그 출력)</Text>
+            <Text style={styles.syncBtnText}>📱 수신함 결제 내역 실시간 동기화 실행</Text>
           )}
+        </TouchableOpacity>
+
+        {/* 실시간 앱 푸시 알림 접근 권한 활성화 버튼 */}
+        <TouchableOpacity
+          style={styles.notifAccessBtn}
+          activeOpacity={0.7}
+          delayPressIn={0}
+          onPress={handleOpenNotificationAccessSettings}
+        >
+          <Text style={styles.notifAccessBtnText}>🔔 실시간 앱 푸시 알림 접근 권한 설정 (터치하여 활성화)</Text>
         </TouchableOpacity>
       </View>
 
@@ -374,52 +382,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         onClose={() => setModalVisible(false)}
         onSave={handleSaveRule}
       />
-
-      {/* 디버그 로그 모달 (클립보드 전체 복사 버튼 지원) */}
-      <Modal
-        visible={debugModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setDebugModalVisible(false)}
-      >
-        <View style={styles.debugOverlay}>
-          <View style={styles.debugContainer}>
-            <Text style={styles.debugTitle}>📱 결제 문자 동기화 진단 로그</Text>
-            <Text style={styles.debugSubText}>
-              하단의 [📋 진단 로그 전체 복사] 버튼을 누르면 전체 로그가 클립보드에 바로 복사됩니다!
-            </Text>
-
-            <TextInput
-              style={styles.debugInput}
-              multiline
-              editable={false}
-              value={debugLogText}
-              selectTextOnFocus
-              showSoftInputOnFocus={false}
-            />
-
-            <View style={styles.debugButtonRow}>
-              <TouchableOpacity
-                style={styles.copyDebugBtn}
-                activeOpacity={0.7}
-                delayPressIn={0}
-                onPress={handleCopyDebugLog}
-              >
-                <Text style={styles.copyDebugBtnText}>📋 진단 로그 전체 복사</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.closeDebugBtn}
-                activeOpacity={0.7}
-                delayPressIn={0}
-                onPress={() => setDebugModalVisible(false)}
-              >
-                <Text style={styles.closeDebugBtnText}>닫기</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 };
@@ -495,6 +457,21 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 14,
   },
+  notifAccessBtn: {
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#90CAF9',
+  },
+  notifAccessBtnText: {
+    fontSize: 12,
+    color: '#1565C0',
+    fontWeight: '600',
+  },
   addBtn: {
     backgroundColor: '#E3F2FD',
     paddingHorizontal: 10,
@@ -560,66 +537,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#D32F2F',
     fontWeight: '600',
-  },
-  /* 디버깅 모달 스타일 */
-  debugOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  debugContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    maxHeight: '88%',
-  },
-  debugTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#212121',
-    marginBottom: 6,
-  },
-  debugSubText: {
-    fontSize: 12,
-    color: '#666666',
-    marginBottom: 12,
-  },
-  debugInput: {
-    backgroundColor: '#1E1E1E',
-    color: '#4CAF50',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 12,
-    fontFamily: 'monospace',
-    height: 320,
-    textAlignVertical: 'top',
-  },
-  debugButtonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 14,
-  },
-  copyDebugBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#4CAF50',
-    borderRadius: 8,
-  },
-  copyDebugBtnText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  closeDebugBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    backgroundColor: '#2196F3',
-    borderRadius: 8,
-  },
-  closeDebugBtnText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 14,
   },
 });
