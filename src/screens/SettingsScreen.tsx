@@ -22,7 +22,10 @@ import {
 import { recurringDao } from '../database/recurringDao';
 import { holidayDao } from '../database/holidayDao';
 import { holidayService } from '../services/holidayService';
-import { syncSmsHistoryForDateWithLog } from '../services/smsHistoryService';
+import {
+  syncSmsHistoryForDateWithLog,
+  copyLogToClipboard,
+} from '../services/smsHistoryService';
 import { RecurringRuleModal } from '../components/settings/RecurringRuleModal';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
@@ -96,6 +99,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
     setDebugLogText(result.debugLog);
     setDebugModalVisible(true);
+  };
+
+  const handleCopyDebugLog = async () => {
+    const success = await copyLogToClipboard(debugLogText);
+    if (success) {
+      Alert.alert('복사 완료', '진단 로그가 클립보드에 복사되었습니다! 답변 창에 붙여넣어 주세요.');
+    } else {
+      Alert.alert('안내', '클립보드 복사 중 오류가 발생했습니다.');
+    }
   };
 
   const handleAddRule = () => {
@@ -363,7 +375,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         onSave={handleSaveRule}
       />
 
-      {/* 디버그 로그 모달 (결과 텍스트 선택/복사 가능) */}
+      {/* 디버그 로그 모달 (클립보드 전체 복사 버튼 지원) */}
       <Modal
         visible={debugModalVisible}
         transparent
@@ -374,7 +386,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <View style={styles.debugContainer}>
             <Text style={styles.debugTitle}>📱 결제 문자 동기화 진단 로그</Text>
             <Text style={styles.debugSubText}>
-              아래 상자의 로그 텍스트를 터치하여 길게 누른 뒤 [전체 선택 -> 복사] 하여 답변으로 주시면 정확히 분석해 드립니다!
+              하단의 [📋 진단 로그 전체 복사] 버튼을 누르면 전체 로그가 클립보드에 바로 복사됩니다!
             </Text>
 
             <TextInput
@@ -387,6 +399,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             />
 
             <View style={styles.debugButtonRow}>
+              <TouchableOpacity
+                style={styles.copyDebugBtn}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={handleCopyDebugLog}
+              >
+                <Text style={styles.copyDebugBtnText}>📋 진단 로그 전체 복사</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.closeDebugBtn}
                 activeOpacity={0.7}
@@ -551,7 +572,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
-    maxHeight: '85%',
+    maxHeight: '88%',
   },
   debugTitle: {
     fontSize: 16,
@@ -576,8 +597,19 @@ const styles = StyleSheet.create({
   },
   debugButtonRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     marginTop: 14,
+  },
+  copyDebugBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#4CAF50',
+    borderRadius: 8,
+  },
+  copyDebugBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
   closeDebugBtn: {
     paddingHorizontal: 20,

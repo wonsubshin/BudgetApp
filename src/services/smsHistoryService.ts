@@ -8,6 +8,22 @@ export interface SmsSyncResult {
   debugLog: string;
 }
 
+export const copyLogToClipboard = async (text: string): Promise<boolean> => {
+  if (Platform.OS !== 'android') return false;
+  try {
+    if (
+      SmsHistoryParserModule &&
+      typeof SmsHistoryParserModule.copyToClipboard === 'function'
+    ) {
+      await SmsHistoryParserModule.copyToClipboard(text);
+      return true;
+    }
+  } catch (err) {
+    console.warn('copyToClipboard error:', err);
+  }
+  return false;
+};
+
 export const syncSmsHistoryForDateWithLog = async (
   targetDateStr?: string
 ): Promise<SmsSyncResult> => {

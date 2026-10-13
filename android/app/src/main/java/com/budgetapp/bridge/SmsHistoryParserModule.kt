@@ -1,5 +1,6 @@
 package com.budgetapp.bridge
 
+import android.content.Context
 import android.content.ContentResolver
 import android.net.Uri
 import android.os.Build
@@ -22,27 +23,42 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     }
 
     @ReactMethod
+    fun copyToClipboard(text: String, promise: Promise) {
+        try {
+            val clipboard = reactContext.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("BudgetApp Debug Log", text)
+            clipboard.setPrimaryClip(clip)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("CLIPBOARD_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
     fun syncSmsHistoryWithLog(targetDateStr: String, promise: Promise) {
         val logBuilder = StringBuilder()
         logBuilder.append("=== BudgetApp SMS & Push Sync Diagnostic Log ===\n")
-        logBuilder.append("Device: ").append(Build.MANUFACTURER).append(" ").append(Build.MODEL).append("\n")
-        logBuilder.append("Android SDK: ").append(Build.VERSION.SDK_INT).append("\n")
+        logBuilder.append("Device: ").append(Build.MANUFACTURER ?: "").append(" ").append(Build.MODEL ?: "").append("\n")
+        logBuilder.append("Android SDK: ").append(Build.VERSION.SDK_INT.toString()).append("\n")
         logBuilder.append("Target Date Filter: ").append(if (targetDateStr.isBlank()) "ALL" else targetDateStr).append("\n\n")
 
         try {
             val contentResolver: ContentResolver = reactContext.contentResolver
 
-            val urisToQuery = mapOf(
-                "content://sms" to Uri.parse("content://sms"),
-                "content://sms/inbox" to Uri.parse("content://sms/inbox"),
-                "content://mms-sms/conversations" to Uri.parse("content://mms-sms/conversations")
+            val urisToQuery = listOf(
+                Pair("content://sms", Uri.parse("content://sms")),
+                Pair("content://sms/inbox", Uri.parse("content://sms/inbox")),
+                Pair("content://mms-sms/conversations", Uri.parse("content://mms-sms/conversations"))
             )
 
             var parsedCount = 0
             var scannedCount = 0
             val processedBodies = HashSet<String>()
 
-            for ((uriName, uri) in urisToQuery) {
+            for (pair in urisToQuery) {
+                val uriName = pair.first
+                val uri = pair.second
+
                 logBuilder.append("--- Querying URI: ").append(uriName).append(" ---\n")
                 try {
                     val cursor = contentResolver.query(
@@ -58,7 +74,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                         continue
                     }
 
-                    logBuilder.append("Cursor row count: ").append(cursor.count).append("\n")
+                    logBuilder.append("Cursor row count: ").append(cursor.count.toString()).append("\n")
 
                     cursor.use {
                         val bodyIndex = it.getColumnIndex("body")
@@ -82,9 +98,9 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                                 val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" || result.dateStr == targetDateStr || smsReceivedDateStr.startsWith(targetDateStr)
                                 logBuilder.append("[Match Found] Time: ").append(smsReceivedDateStr)
                                     .append(" | Card: ").append(result.cardCompany)
-                                    .append(" | Amount: ").append(result.amount)
+                                    .append(" | Amount: ").append(result.amount.toString())
                                     .append(" | Merchant: ").append(result.merchant)
-                                    .append(" | DateFilterMatch: ").append(matchDate).append("\n")
+                                    .append(" | DateFilterMatch: ").append(matchDate.toString()).append("\n")
 
                                 if (matchDate) {
                                     FinancialParserModule.emitPaymentEvent(
@@ -108,14 +124,14 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                         }
                     }
                 } catch (e: Exception) {
-                    logBuilder.append("Error querying ").append(uriName).append(": ").append(e.message).append("\n")
+                    logBuilder.append("Error querying ").append(uriName).append(": ").append(e.message ?: "").append("\n")
                 }
             }
 
             // 푸시 알림 히스토리 분석
             val pushCount = AppNotificationListener.syncPushHistoryForDate(targetDateStr)
-            logBuilder.append("\nPush Notification Sync Count: ").append(pushCount).append("\n")
-            logBuilder.append("Total Parsed Card Transactions: ").append(parsedCount + pushCount).append("\n")
+            logBuilder.append("\nPush Notification Sync Count: ").append(pushCount.toString()).append("\n")
+            logBuilder.append("Total Parsed Card Transactions: ").append((parsedCount + pushCount).toString()).append("\n")
             logBuilder.append("=========================================\n")
 
             val resultMap: WritableMap = Arguments.createMap().apply {
@@ -126,7 +142,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
 
             promise.resolve(resultMap)
         } catch (e: Exception) {
-            logBuilder.append("\nFatal Sync Error: ").append(e.message).append("\n")
+            logBuilder.append("\nFatal Sync Error: ").append(e.message ?: "").append("\n")
             promise.reject("SMS_SYNC_ERROR", logBuilder.toString(), e)
         }
     }
