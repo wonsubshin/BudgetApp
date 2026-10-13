@@ -4,11 +4,24 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.budgetapp.bridge.FinancialParserModule
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.regex.Pattern
 
 class AppNotificationListener : NotificationListenerService() {
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (instance == this) {
+            instance = null
+        }
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val sbnObj = sbn ?: return
@@ -32,7 +45,7 @@ class AppNotificationListener : NotificationListenerService() {
         }
     }
 
-    private fun parseKakaoPayNotification(text: String) {
+    fun parseKakaoPayNotification(text: String) {
         val amountPattern = Pattern.compile("([0-9,]+)원")
         val matcher = amountPattern.matcher(text)
 
@@ -58,7 +71,7 @@ class AppNotificationListener : NotificationListenerService() {
         }
     }
 
-    private fun parseHyundaiCardNotification(text: String) {
+    fun parseHyundaiCardNotification(text: String) {
         val amountPattern = Pattern.compile("([0-9,]+)원")
         val installmentPattern = Pattern.compile("(일시불|([0-9]+)개월)")
 
@@ -108,6 +121,53 @@ class AppNotificationListener : NotificationListenerService() {
                 installmentType = installmentType,
                 installmentMonths = installmentMonths
             )
+        }
+    }
+
+    companion object {
+        private var instance: AppNotificationListener? = null
+
+        fun syncPushHistoryForDate(targetDateStr: String): Int {
+            val listener = instance ?: return 0
+            var count = 0
+            try {
+                val activeNotifs = listener.activeNotifications ?: return 0
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val targetDate = try { sdf.parse(targetDateStr) ?: Date() } catch (e: Exception) { Date() }
+
+                val cal = Calendar.getInstance()
+                cal.time = targetDate
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                val startTime = cal.timeInMillis
+
+                cal.set(Calendar.HOUR_OF_DAY, 23)
+                cal.set(Calendar.MINUTE, 59)
+                cal.set(Calendar.SECOND, 59)
+                cal.set(Calendar.MILLISECOND, 999)
+                val endTime = cal.timeInMillis
+
+                for (sbn in activeNotifs) {
+                    val postTime = sbn.postTime
+                    if (postTime in startTime..endTime) {
+                        val extras = sbn.notification.extras
+                        val title = extras.getCharSequence("android.title")?.toString() ?: ""
+                        val text = extras.getCharSequence("android.text")?.toString() ?: ""
+                        val bigText = extras.getCharSequence("android.bigText")?.toString() ?: ""
+                        val fullContent = "$title $text $bigText"
+
+                        if (fullContent.contains("카드")) {
+                            listener.parseHyundaiCardNotification(fullContent)
+                            count++
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+            return count
         }
     }
 }

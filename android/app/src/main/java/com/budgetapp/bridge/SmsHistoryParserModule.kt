@@ -2,6 +2,7 @@ package com.budgetapp.bridge
 
 import android.content.ContentResolver
 import android.net.Uri
+import com.budgetapp.notification.AppNotificationListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -74,7 +75,11 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 }
             }
 
-            promise.resolve(parsedCount)
+            // 푸시 알림 수신 히스토리 분석 추가
+            val pushCount = AppNotificationListener.syncPushHistoryForDate(targetDateStr)
+            val totalCount = parsedCount + pushCount
+
+            promise.resolve(totalCount)
         } catch (e: Exception) {
             promise.reject("SMS_SYNC_ERROR", e.message, e)
         }
