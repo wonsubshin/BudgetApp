@@ -55,6 +55,7 @@ class AppNotificationListener : NotificationListenerService() {
 
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val dateStr = dateFormat.format(Date())
+            val exactCreatedAt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
 
             val words = text.split("\\s+".toRegex())
             val merchant = words.lastOrNull { it.isNotBlank() && !it.contains("원") && !it.contains("페이") } ?: "카카오페이 결제"
@@ -66,7 +67,8 @@ class AppNotificationListener : NotificationListenerService() {
                 paymentType = "CARD",
                 cardCompany = "카카오뱅크",
                 installmentType = "LUMP_SUM",
-                installmentMonths = 1
+                installmentMonths = 1,
+                createdAtStr = exactCreatedAt
             )
         }
     }
@@ -108,6 +110,7 @@ class AppNotificationListener : NotificationListenerService() {
 
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val dateStr = dateFormat.format(Date())
+            val exactCreatedAt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
 
             val words = text.split("\\s+".toRegex())
             val merchant = words.lastOrNull { it.isNotBlank() && !it.contains("원") && !it.contains("카드") && !it.contains("승인") } ?: "카드 결제"
@@ -119,7 +122,8 @@ class AppNotificationListener : NotificationListenerService() {
                 paymentType = "CARD",
                 cardCompany = cardCompany,
                 installmentType = installmentType,
-                installmentMonths = installmentMonths
+                installmentMonths = installmentMonths,
+                createdAtStr = exactCreatedAt
             )
         }
     }

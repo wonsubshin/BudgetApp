@@ -18,10 +18,11 @@ export const subscribeNativePaymentEvents = (
       cardCompany?: string;
       installmentType: string;
       installmentMonths: number;
+      createdAt?: string;
     }) => {
       try {
         const now = Date.now();
-        const eventKey = `${event.date}_${event.amount}_${event.merchant}`;
+        const eventKey = `${event.date}_${event.amount}_${event.merchant}_${event.createdAt || ''}`;
 
         // 2초 이내 동일 이벤트 발생 시 중복 등록 방지 (Deduplication)
         if (eventKey === lastEventKey && now - lastEventTime < 2000) {
@@ -44,6 +45,7 @@ export const subscribeNativePaymentEvents = (
             event.installmentType === 'INSTALLMENT' ? 'INSTALLMENT' : 'LUMP_SUM',
           installmentMonths: event.installmentMonths || 1,
           isRecurring: false,
+          createdAt: event.createdAt,
         };
 
         transactionDao.insertTransaction(tx);

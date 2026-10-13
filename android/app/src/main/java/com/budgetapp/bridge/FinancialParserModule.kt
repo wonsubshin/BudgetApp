@@ -27,7 +27,8 @@ class FinancialParserModule(reactContext: ReactApplicationContext) :
             paymentType: String,
             cardCompany: String? = null,
             installmentType: String,
-            installmentMonths: Int
+            installmentMonths: Int,
+            createdAtStr: String? = null
         ) {
             val params: WritableMap = Arguments.createMap().apply {
                 putString("date", dateStr)
@@ -39,6 +40,9 @@ class FinancialParserModule(reactContext: ReactApplicationContext) :
                 }
                 putString("installmentType", installmentType)
                 putInt("installmentMonths", installmentMonths)
+                if (createdAtStr != null) {
+                    putString("createdAt", createdAtStr)
+                }
             }
 
             companionContext

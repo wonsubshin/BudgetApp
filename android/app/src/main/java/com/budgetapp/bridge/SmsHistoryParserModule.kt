@@ -67,7 +67,8 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
 
                     if (body.isNotBlank() && body.contains("카드")) {
                         val smsDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(if (smsTime > 0) smsTime else startTime))
-                        val success = parseAndEmitPayment(body, smsDateStr)
+                        val exactCreatedAt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(if (smsTime > 0) smsTime else startTime))
+                        val success = parseAndEmitPayment(body, smsDateStr, exactCreatedAt)
                         if (success) {
                             parsedCount++
                         }
@@ -85,7 +86,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
         }
     }
 
-    private fun parseAndEmitPayment(body: String, dateStr: String): Boolean {
+    private fun parseAndEmitPayment(body: String, dateStr: String, createdAtStr: String): Boolean {
         val amountPattern = Pattern.compile("([0-9,]+)원")
         val installmentPattern = Pattern.compile("(일시불|([0-9]+)개월)")
 
@@ -131,7 +132,8 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 paymentType = "CARD",
                 cardCompany = cardCompany,
                 installmentType = installmentType,
-                installmentMonths = installmentMonths
+                installmentMonths = installmentMonths,
+                createdAtStr = createdAtStr
             )
             return true
         }

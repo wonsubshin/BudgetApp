@@ -53,6 +53,7 @@ class SmsReceiver : BroadcastReceiver() {
 
             val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val dateStr = dateFormat.format(Date())
+            val exactCreatedAt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
 
             val cardCompany = when {
                 body.contains("신한") -> "신한카드"
@@ -77,7 +78,8 @@ class SmsReceiver : BroadcastReceiver() {
                 paymentType = "CARD",
                 cardCompany = cardCompany,
                 installmentType = installmentType,
-                installmentMonths = installmentMonths
+                installmentMonths = installmentMonths,
+                createdAtStr = exactCreatedAt
             )
         }
     }

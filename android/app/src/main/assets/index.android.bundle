@@ -125092,7 +125092,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     return _reactNative.DeviceEventEmitter.addListener('onPaymentParsed', function (event) {
       try {
         var now = Date.now();
-        var eventKey = `${event.date}_${event.amount}_${event.merchant}`;
+        var eventKey = `${event.date}_${event.amount}_${event.merchant}_${event.createdAt || ''}`;
 
         // 2초 이내 동일 이벤트 발생 시 중복 등록 방지 (Deduplication)
         if (eventKey === lastEventKey && now - lastEventTime < 2000) {
@@ -125111,7 +125111,8 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           cardCompany: event.cardCompany || (event.paymentType === 'CARD' ? '카드' : undefined),
           installmentType: event.installmentType === 'INSTALLMENT' ? 'INSTALLMENT' : 'LUMP_SUM',
           installmentMonths: event.installmentMonths || 1,
-          isRecurring: false
+          isRecurring: false,
+          createdAt: event.createdAt
         };
         _$$_REQUIRE(_dependencyMap[1], "../database/transactionDao").transactionDao.insertTransaction(tx);
         if (onInserted) {
@@ -125132,8 +125133,32 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
   var transactionDao = exports.transactionDao = {
     insertTransaction: function insertTransaction(tx) {
       var db = (0, _$$_REQUIRE(_dependencyMap[1], "./db").getDb)();
-      db.execute(`INSERT INTO transactions (id, date, category_type, amount, merchant, payment_type, card_company, installment_type, installment_months, is_recurring)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`, [tx.id, tx.date, tx.categoryType, tx.amount, tx.merchant, tx.paymentType, tx.cardCompany || null, tx.installmentType, tx.installmentMonths, tx.isRecurring ? 1 : 0]);
+
+      // 중복 체크: 시분초(created_at) OR 날짜(date), 사용처(merchant), 금액(amount)이 동일한 기존 기록이 있는지 확인
+      if (tx.createdAt) {
+        var _dupCheck$rows, _dupCheck$rows$_array, _dupCheck$rows$_array2;
+        var dupCheck = db.execute('SELECT COUNT(*) as count FROM transactions WHERE merchant = ? AND amount = ? AND created_at = ?;', [tx.merchant, tx.amount, tx.createdAt]);
+        var cnt = ((_dupCheck$rows = dupCheck.rows) == null ? void 0 : (_dupCheck$rows$_array = _dupCheck$rows._array) == null ? void 0 : (_dupCheck$rows$_array2 = _dupCheck$rows$_array[0]) == null ? void 0 : _dupCheck$rows$_array2.count) || 0;
+        if (cnt > 0) {
+          console.log(`⚠️ 동일한 결제 내역(시분초:${tx.createdAt}, 사용처:${tx.merchant}, 금액:${tx.amount})이 이미 존재하여 중복 추가를 방지했습니다.`);
+          return;
+        }
+      } else {
+        var _dupCheck$rows2, _dupCheck$rows2$_arra, _dupCheck$rows2$_arra2;
+        var _dupCheck = db.execute('SELECT COUNT(*) as count FROM transactions WHERE merchant = ? AND amount = ? AND date = ?;', [tx.merchant, tx.amount, tx.date]);
+        var _cnt = ((_dupCheck$rows2 = _dupCheck.rows) == null ? void 0 : (_dupCheck$rows2$_arra = _dupCheck$rows2._array) == null ? void 0 : (_dupCheck$rows2$_arra2 = _dupCheck$rows2$_arra[0]) == null ? void 0 : _dupCheck$rows2$_arra2.count) || 0;
+        if (_cnt > 0) {
+          console.log(`⚠️ 동일한 결제 내역(일자:${tx.date}, 사용처:${tx.merchant}, 금액:${tx.amount})이 이미 존재하여 중복 추가를 방지했습니다.`);
+          return;
+        }
+      }
+      if (tx.createdAt) {
+        db.execute(`INSERT INTO transactions (id, date, category_type, amount, merchant, payment_type, card_company, installment_type, installment_months, is_recurring, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`, [tx.id, tx.date, tx.categoryType, tx.amount, tx.merchant, tx.paymentType, tx.cardCompany || null, tx.installmentType, tx.installmentMonths, tx.isRecurring ? 1 : 0, tx.createdAt]);
+      } else {
+        db.execute(`INSERT INTO transactions (id, date, category_type, amount, merchant, payment_type, card_company, installment_type, installment_months, is_recurring)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`, [tx.id, tx.date, tx.categoryType, tx.amount, tx.merchant, tx.paymentType, tx.cardCompany || null, tx.installmentType, tx.installmentMonths, tx.isRecurring ? 1 : 0]);
+      }
       _reactNative.DeviceEventEmitter.emit('TRANSACTION_UPDATED');
     },
     updateTransaction: function updateTransaction(tx) {

@@ -5,22 +5,70 @@ import { Transaction } from '../types/budget';
 export const transactionDao = {
   insertTransaction(tx: Transaction): void {
     const db = getDb();
-    db.execute(
-      `INSERT INTO transactions (id, date, category_type, amount, merchant, payment_type, card_company, installment_type, installment_months, is_recurring)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-      [
-        tx.id,
-        tx.date,
-        tx.categoryType,
-        tx.amount,
-        tx.merchant,
-        tx.paymentType,
-        tx.cardCompany || null,
-        tx.installmentType,
-        tx.installmentMonths,
-        tx.isRecurring ? 1 : 0,
-      ]
-    );
+
+    // 중복 체크: 시분초(created_at) OR 날짜(date), 사용처(merchant), 금액(amount)이 동일한 기존 기록이 있는지 확인
+    if (tx.createdAt) {
+      const dupCheck = db.execute(
+        'SELECT COUNT(*) as count FROM transactions WHERE merchant = ? AND amount = ? AND created_at = ?;',
+        [tx.merchant, tx.amount, tx.createdAt]
+      );
+      const cnt = dupCheck.rows?._array?.[0]?.count || 0;
+      if (cnt > 0) {
+        console.log(
+          `⚠️ 동일한 결제 내역(시분초:${tx.createdAt}, 사용처:${tx.merchant}, 금액:${tx.amount})이 이미 존재하여 중복 추가를 방지했습니다.`
+        );
+        return;
+      }
+    } else {
+      const dupCheck = db.execute(
+        'SELECT COUNT(*) as count FROM transactions WHERE merchant = ? AND amount = ? AND date = ?;',
+        [tx.merchant, tx.amount, tx.date]
+      );
+      const cnt = dupCheck.rows?._array?.[0]?.count || 0;
+      if (cnt > 0) {
+        console.log(
+          `⚠️ 동일한 결제 내역(일자:${tx.date}, 사용처:${tx.merchant}, 금액:${tx.amount})이 이미 존재하여 중복 추가를 방지했습니다.`
+        );
+        return;
+      }
+    }
+
+    if (tx.createdAt) {
+      db.execute(
+        `INSERT INTO transactions (id, date, category_type, amount, merchant, payment_type, card_company, installment_type, installment_months, is_recurring, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        [
+          tx.id,
+          tx.date,
+          tx.categoryType,
+          tx.amount,
+          tx.merchant,
+          tx.paymentType,
+          tx.cardCompany || null,
+          tx.installmentType,
+          tx.installmentMonths,
+          tx.isRecurring ? 1 : 0,
+          tx.createdAt,
+        ]
+      );
+    } else {
+      db.execute(
+        `INSERT INTO transactions (id, date, category_type, amount, merchant, payment_type, card_company, installment_type, installment_months, is_recurring)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        [
+          tx.id,
+          tx.date,
+          tx.categoryType,
+          tx.amount,
+          tx.merchant,
+          tx.paymentType,
+          tx.cardCompany || null,
+          tx.installmentType,
+          tx.installmentMonths,
+          tx.isRecurring ? 1 : 0,
+        ]
+      );
+    }
     DeviceEventEmitter.emit('TRANSACTION_UPDATED');
   },
 
