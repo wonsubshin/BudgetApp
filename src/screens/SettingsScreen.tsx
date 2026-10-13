@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { useFocusEffect } from '@react-navigation/native';
@@ -21,7 +22,7 @@ import {
 import { recurringDao } from '../database/recurringDao';
 import { holidayDao } from '../database/holidayDao';
 import { holidayService } from '../services/holidayService';
-import { syncSmsHistoryForDate } from '../services/smsHistoryService';
+import { syncSmsHistoryForDateWithLog } from '../services/smsHistoryService';
 import { RecurringRuleModal } from '../components/settings/RecurringRuleModal';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
@@ -45,6 +46,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [customHolidays, setCustomHolidays] = useState<Holiday[]>([]);
   const [customDate, setCustomDate] = useState('');
   const [customName, setCustomName] = useState('');
+
+  // 디버깅 로그 모달 상태
+  const [debugModalVisible, setDebugModalVisible] = useState(false);
+  const [debugLogText, setDebugLogText] = useState('');
 
   const loadSettingsData = useCallback(() => {
     setRecurringRules(recurringDao.getAllRecurringRules());
@@ -86,14 +91,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const handleSyncSmsHistory = async () => {
     const nicknameDate = getNicknameCreatedAt();
     setIsSyncing(true);
-    const count = await syncSmsHistoryForDate(nicknameDate);
+    const result = await syncSmsHistoryForDateWithLog(nicknameDate);
     setIsSyncing(false);
 
-    if (count > 0) {
-      Alert.alert('동기화 완료', `닉네임 설정일(${nicknameDate})의 카드 결제 문자를 수신하여 ${count}건을 가계부에 자동 등록했습니다!`);
-    } else {
-      Alert.alert('안내', `닉네임 설정일(${nicknameDate}) 수신함에서 신규 카드 결제 문자가 발견되지 않았습니다.`);
-    }
+    setDebugLogText(result.debugLog);
+    setDebugModalVisible(true);
   };
 
   const handleAddRule = () => {
@@ -219,11 +221,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* 3. 닉네임 설정일 결제 문자 자동 동기화 */}
+      {/* 3. 닉네임 설정일 결제 문자 자동 동기화 & 진단 */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>📱 닉네임 설정일 결제 문자 동기화</Text>
         <Text style={styles.sectionSub}>
-          닉네임을 처음 설정한 날({getNicknameCreatedAt()})의 카드 결제 문자 내역을 수신함에서 분석하여 가계부에 자동 반영합니다.
+          닉네임을 설정한 날({getNicknameCreatedAt()})의 카드 결제 문자를 수신함에서 분석하여 가계부에 자동 반영합니다.
         </Text>
         <TouchableOpacity
           style={[styles.syncBtn, { backgroundColor: '#2196F3' }]}
@@ -232,7 +234,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           onPress={handleSyncSmsHistory}
           disabled={isSyncing}
         >
-          <Text style={styles.syncBtnText}>📱 닉네임 설정일 결제 문자 분석 실행</Text>
+          {isSyncing ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.syncBtnText}>📱 닉네임 설정일 결제 문자 분석 실행 (로그 출력)</Text>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -356,6 +362,43 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         onClose={() => setModalVisible(false)}
         onSave={handleSaveRule}
       />
+
+      {/* 디버그 로그 모달 (결과 텍스트 선택/복사 가능) */}
+      <Modal
+        visible={debugModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDebugModalVisible(false)}
+      >
+        <View style={styles.debugOverlay}>
+          <View style={styles.debugContainer}>
+            <Text style={styles.debugTitle}>📱 결제 문자 동기화 진단 로그</Text>
+            <Text style={styles.debugSubText}>
+              아래 상자의 로그 텍스트를 터치하여 길게 누른 뒤 [전체 선택 -> 복사] 하여 답변으로 주시면 정확히 분석해 드립니다!
+            </Text>
+
+            <TextInput
+              style={styles.debugInput}
+              multiline
+              editable={false}
+              value={debugLogText}
+              selectTextOnFocus
+              showSoftInputOnFocus={false}
+            />
+
+            <View style={styles.debugButtonRow}>
+              <TouchableOpacity
+                style={styles.closeDebugBtn}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={() => setDebugModalVisible(false)}
+              >
+                <Text style={styles.closeDebugBtnText}>닫기</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 };
@@ -496,5 +539,55 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#D32F2F',
     fontWeight: '600',
+  },
+  /* 디버깅 모달 스타일 */
+  debugOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  debugContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    maxHeight: '85%',
+  },
+  debugTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#212121',
+    marginBottom: 6,
+  },
+  debugSubText: {
+    fontSize: 12,
+    color: '#666666',
+    marginBottom: 12,
+  },
+  debugInput: {
+    backgroundColor: '#1E1E1E',
+    color: '#4CAF50',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 12,
+    fontFamily: 'monospace',
+    height: 320,
+    textAlignVertical: 'top',
+  },
+  debugButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 14,
+  },
+  closeDebugBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#2196F3',
+    borderRadius: 8,
+  },
+  closeDebugBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });

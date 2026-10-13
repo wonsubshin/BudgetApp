@@ -1,14 +1,24 @@
-import { NativeModules, PermissionsAndroid, Platform, Alert } from 'react-native';
+import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 
 const { SmsHistoryParserModule } = NativeModules;
 
-export const syncSmsHistoryForDate = async (targetDateStr?: string): Promise<number> => {
-  if (Platform.OS !== 'android') return 0;
+export interface SmsSyncResult {
+  count: number;
+  scannedCount: number;
+  debugLog: string;
+}
+
+export const syncSmsHistoryForDateWithLog = async (
+  targetDateStr?: string
+): Promise<SmsSyncResult> => {
+  if (Platform.OS !== 'android') {
+    return { count: 0, scannedCount: 0, debugLog: 'Android 플랫폼이 아닙니다.' };
+  }
 
   try {
     const dateToSync = targetDateStr || 'ALL';
 
-    // READ_SMS 및 RECEIVE_SMS 권한 확인 및 요청
+    // READ_SMS 권한 체크 및 요청
     const hasReadPermission = await PermissionsAndroid.check(
       PermissionsAndroid.PERMISSIONS.READ_SMS
     );
@@ -25,22 +35,39 @@ export const syncSmsHistoryForDate = async (targetDateStr?: string): Promise<num
       );
 
       if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-        Alert.alert(
-          '권한 필요',
-          'SMS 읽기 권한이 거부되어 수신함 문자를 분석할 수 없습니다.\n[스마트폰 설정 -> 애플리케이션 -> BudgetApp -> 권한]에서 SMS 권한을 허용해 주세요.'
-        );
-        return 0;
+        return {
+          count: 0,
+          scannedCount: 0,
+          debugLog: 'READ_SMS 권한이 거부되었습니다.\n[스마트폰 설정 -> 애플리케이션 -> BudgetApp -> 권한]에서 SMS 권한을 허용해 주세요.',
+        };
       }
     }
 
-    if (SmsHistoryParserModule && typeof SmsHistoryParserModule.syncSmsHistoryForDate === 'function') {
-      const parsedCount: number = await SmsHistoryParserModule.syncSmsHistoryForDate(dateToSync);
-      console.log(`📱 [SMS History Sync] ${dateToSync} parsed count:`, parsedCount);
-      return parsedCount;
+    if (
+      SmsHistoryParserModule &&
+      typeof SmsHistoryParserModule.syncSmsHistoryWithLog === 'function'
+    ) {
+      const res: SmsSyncResult = await SmsHistoryParserModule.syncSmsHistoryWithLog(dateToSync);
+      return res;
+    } else if (
+      SmsHistoryParserModule &&
+      typeof SmsHistoryParserModule.syncSmsHistoryForDate === 'function'
+    ) {
+      const count: number = await SmsHistoryParserModule.syncSmsHistoryForDate(dateToSync);
+      return { count, scannedCount: 0, debugLog: `Parsed count: ${count}` };
     }
-  } catch (err) {
-    console.warn('syncSmsHistoryForDate failed:', err);
+  } catch (err: any) {
+    return {
+      count: 0,
+      scannedCount: 0,
+      debugLog: `Sync error: ${err?.message || String(err)}`,
+    };
   }
 
-  return 0;
+  return { count: 0, scannedCount: 0, debugLog: 'SMS 모듈을 찾을 수 없습니다.' };
+};
+
+export const syncSmsHistoryForDate = async (targetDateStr?: string): Promise<number> => {
+  const res = await syncSmsHistoryForDateWithLog(targetDateStr);
+  return res.count;
 };
