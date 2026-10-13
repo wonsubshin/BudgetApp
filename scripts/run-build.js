@@ -4,6 +4,7 @@ const { getEnvironmentConfig, setupLocalProperties } = require('./setup-env');
 
 function main() {
   const targetEnv = process.argv[2];
+  const taskName = process.argv[3] || 'app:installDebug';
   const { envKey, envConfig } = getEnvironmentConfig(targetEnv);
 
   console.log(`🚀 [${envKey.toUpperCase()}] 환경으로 컴파일 및 빌드를 시작합니다...`);
@@ -49,14 +50,14 @@ function main() {
   console.log(`   JAVA_HOME   : ${env.JAVA_HOME}`);
   console.log(`   ANDROID_HOME: ${env.ANDROID_HOME}`);
 
-  // 3. Gradle 빌드 및 안드로이드 에뮬레이터 앱 실행
+  // 3. Gradle 빌드
   const isWindows = process.platform === 'win32';
   const gradlewCmd = isWindows ? 'gradlew.bat' : './gradlew';
   const androidDir = path.resolve(__dirname, '../android');
 
-  console.log(`\n▶️ 실행 명령어: ${gradlewCmd} app:installDebug\n`);
+  console.log(`\n▶️ 실행 명령어: ${gradlewCmd} ${taskName}\n`);
 
-  const child = spawn(gradlewCmd, ['app:installDebug'], {
+  const child = spawn(gradlewCmd, [taskName], {
     cwd: androidDir,
     env,
     stdio: 'inherit',
@@ -65,16 +66,19 @@ function main() {
 
   child.on('close', (code) => {
     if (code === 0) {
-      console.log(`\n📲 앱 설치 성공! 에뮬레이터 설정 및 앱을 구동합니다...`);
-      try {
-        // 스타일러스 튜토리얼 팝업 차단 설정
-        execSync('adb shell settings put secure stylus_handwriting_enabled 0', { env, stdio: 'inherit' });
-        execSync('adb shell settings put global stylus_handwriting_enabled 0', { env, stdio: 'inherit' });
-        execSync('adb reverse tcp:8081 tcp:8081', { env, stdio: 'inherit' });
-        execSync('adb shell am start -n com.budgetapp/.MainActivity', { env, stdio: 'inherit' });
-        console.log(`\n🎉 [${envKey.toUpperCase()}] 빌드 및 앱 실행 완벽 완료!`);
-      } catch (err) {
-        console.warn(`⚠️ 앱 자동 실행 중 안내:`, err.message);
+      if (taskName === 'app:installDebug') {
+        console.log(`\n📲 앱 설치 성공! 에뮬레이터 설정 및 앱을 구동합니다...`);
+        try {
+          execSync('adb shell settings put secure stylus_handwriting_enabled 0', { env, stdio: 'inherit' });
+          execSync('adb shell settings put global stylus_handwriting_enabled 0', { env, stdio: 'inherit' });
+          execSync('adb reverse tcp:8081 tcp:8081', { env, stdio: 'inherit' });
+          execSync('adb shell am start -n com.budgetapp/.MainActivity', { env, stdio: 'inherit' });
+          console.log(`\n🎉 [${envKey.toUpperCase()}] 빌드 및 앱 실행 완벽 완료!`);
+        } catch (err) {
+          console.warn(`⚠️ 앱 자동 실행 중 안내:`, err.message);
+        }
+      } else {
+        console.log(`\n🎉 [${envKey.toUpperCase()}] 빌드 완료! (${taskName})`);
       }
     } else {
       console.error(`\n❌ 빌드 중 오류 발생 (종료 코드: ${code})`);
