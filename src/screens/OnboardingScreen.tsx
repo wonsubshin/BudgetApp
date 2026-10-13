@@ -25,7 +25,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
   onComplete,
 }) => {
   const [name, setName] = useState('');
-  const [budgetStr, setBudgetStr] = useState('1,500,000');
+  const [budgetStr, setBudgetStr] = useState('');
 
   const nameInputRef = useRef<TextInput>(null);
   const budgetInputRef = useRef<TextInput>(null);

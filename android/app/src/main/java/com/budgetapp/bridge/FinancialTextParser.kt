@@ -24,6 +24,11 @@ object FinancialTextParser {
             return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
         }
 
+        // 0. "광고" 문구가 포함된 메시지는 파싱에서 즉시 제외
+        if (rawBody.contains("광고")) {
+            return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
+        }
+
         // 1. 카드사 및 승인 문구 체크 (카드사 + 승인/자동결제/결제/접수)
         val hasKeyword = rawBody.contains("승인") || rawBody.contains("자동결제") || rawBody.contains("결제") || rawBody.contains("접수")
         val cardCompany = when {
