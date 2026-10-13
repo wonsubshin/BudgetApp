@@ -8,7 +8,6 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -22,36 +21,17 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun syncSmsHistoryForDate(targetDateStr: String, promise: Promise) {
         try {
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val targetDate: Date = try {
-                sdf.parse(targetDateStr) ?: Date()
-            } catch (e: Exception) {
-                Date()
-            }
-
-            val cal = Calendar.getInstance()
-            cal.time = targetDate
-            cal.set(Calendar.HOUR_OF_DAY, 0)
-            cal.set(Calendar.MINUTE, 0)
-            cal.set(Calendar.SECOND, 0)
-            cal.set(Calendar.MILLISECOND, 0)
-            val startTime = cal.timeInMillis
-
-            cal.set(Calendar.HOUR_OF_DAY, 23)
-            cal.set(Calendar.MINUTE, 59)
-            cal.set(Calendar.SECOND, 59)
-            cal.set(Calendar.MILLISECOND, 999)
-            val endTime = cal.timeInMillis
-
             val contentResolver: ContentResolver = reactContext.contentResolver
-            val uri = Uri.parse("content://sms/inbox")
+
+            // 삼성 갤럭시 등 다양한 안드로이드 단말 호환성을 위해 content://sms URI 사용
+            val uri = Uri.parse("content://sms")
 
             val cursor = contentResolver.query(
                 uri,
                 arrayOf("body", "date"),
-                "date >= ? AND date <= ?",
-                arrayOf(startTime.toString(), endTime.toString()),
-                "date DESC"
+                null,
+                null,
+                "date DESC LIMIT 200"
             )
 
             var parsedCount = 0
@@ -64,20 +44,27 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                     val body = if (bodyIndex != -1) it.getString(bodyIndex) ?: "" else ""
                     val smsTime = if (dateIndex != -1) it.getLong(dateIndex) else 0L
 
-                    if (body.isNotBlank()) {
-                        val result = FinancialTextParser.parse(body, if (smsTime > 0) smsTime else startTime)
+                    if (body.isNotBlank() && body.contains("카드")) {
+                        val fallbackTime = if (smsTime > 0) smsTime else System.currentTimeMillis()
+                        val result = FinancialTextParser.parse(body, fallbackTime)
+
                         if (result.isPayment) {
-                            FinancialParserModule.emitPaymentEvent(
-                                dateStr = result.dateStr,
-                                amount = result.amount,
-                                merchant = result.merchant,
-                                paymentType = "CARD",
-                                cardCompany = result.cardCompany,
-                                installmentType = result.installmentType,
-                                installmentMonths = result.installmentMonths,
-                                createdAtStr = result.createdAtStr
-                            )
-                            parsedCount++
+                            val smsReceivedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(fallbackTime))
+
+                            // 파싱된 결제 날짜 또는 SMS 수신일이 targetDateStr과 일치하는 경우 자동 등록
+                            if (targetDateStr.isBlank() || result.dateStr == targetDateStr || smsReceivedDateStr == targetDateStr) {
+                                FinancialParserModule.emitPaymentEvent(
+                                    dateStr = result.dateStr,
+                                    amount = result.amount,
+                                    merchant = result.merchant,
+                                    paymentType = "CARD",
+                                    cardCompany = result.cardCompany,
+                                    installmentType = result.installmentType,
+                                    installmentMonths = result.installmentMonths,
+                                    createdAtStr = result.createdAtStr
+                                )
+                                parsedCount++
+                            }
                         }
                     }
                 }
