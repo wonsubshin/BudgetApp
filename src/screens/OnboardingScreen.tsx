@@ -11,6 +11,7 @@ import {
   ScrollView,
   TouchableWithoutFeedback,
   Keyboard,
+  Linking,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { setNickname, setNicknameCreatedAt, setMonthlyBudget } from '../storage/mmkv';
@@ -60,15 +61,38 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
 
     // 닉네임 설정일(오늘)의 카드 결제 SMS/푸시 내역 자동 분석 및 등록
     try {
-      const count = await syncSmsHistoryForDate(todayStr);
-      if (count > 0) {
-        Alert.alert('자동 등록 완료', `닉네임 설정일(${todayStr})의 카드 결제 내역 ${count}건을 수신하여 가계부에 자동 등록했습니다!`);
-      }
+      await syncSmsHistoryForDate(todayStr);
     } catch (e) {
       console.warn('SMS sync error:', e);
     }
 
-    onComplete();
+    // 닉네임 설정 후 즉시 앱 푸시 알림 접근 권한 승인 유도
+    if (Platform.OS === 'android') {
+      Alert.alert(
+        '🔔 알림 접근 권한 승인 안내',
+        '카드 결제 앱 푸시 알림을 실시간으로 파싱하여 가계부에 자동 반영하려면 [알림 접근 허용] 권한이 필요합니다. 설정 화면으로 이동하시겠습니까?',
+        [
+          {
+            text: '나중에',
+            style: 'cancel',
+            onPress: () => onComplete(),
+          },
+          {
+            text: '설정으로 이동',
+            onPress: () => {
+              try {
+                Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
+              } catch (e) {
+                // Ignore
+              }
+              onComplete();
+            },
+          },
+        ]
+      );
+    } else {
+      onComplete();
+    }
   };
 
   return (

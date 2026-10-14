@@ -1,15 +1,17 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, ScrollView, Pressable, DeviceEventEmitter } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, ScrollView, Pressable, TextInput, Alert, DeviceEventEmitter } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { useFocusEffect } from '@react-navigation/native';
 import dayjs from 'dayjs';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import { BudgetHeaderBanner } from '../components/calendar/BudgetHeaderBanner';
-import { ViewMode } from '../types/budget';
+import { ViewMode, Transaction } from '../types/budget';
 import {
   getMonthlyBudget,
   getViewMode,
   setViewMode as setStorageViewMode,
+  getManualInstallment,
+  setManualInstallment,
 } from '../storage/mmkv';
 import { transactionDao } from '../database/transactionDao';
 import { recurringDao } from '../database/recurringDao';
@@ -18,7 +20,13 @@ import {
   calculateDailyBudget,
   getBudgetStatusColor,
   calculateWeeklyRemainingBudget,
+  formatNumberWithComma,
+  parseNumberFromComma,
 } from '../utils/budgetUtils';
+import {
+  InstallmentDetailModal,
+  InstallmentItemDetail,
+} from '../components/calendar/InstallmentDetailModal';
 
 dayjs.extend(isSameOrAfter);
 
@@ -54,7 +62,6 @@ LocaleConfig.locales['kr'] = {
   dayNames: [
     '일요일',
     '월요일',
-    '화요일',
     '수요일',
     '목요일',
     '금요일',
@@ -80,6 +87,10 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
   const [dailyExpenseTotals, setDailyExpenseTotals] = useState<{ [date: string]: number }>({});
   const [dailySavingsTotals, setDailySavingsTotals] = useState<{ [date: string]: number }>({});
   const [thisMonthInstallmentTotal, setThisMonthInstallmentTotal] = useState<number>(0);
+  const [manualInstallmentStr, setManualInstallmentStr] = useState('');
+  const [installmentModalVisible, setInstallmentModalVisible] = useState(false);
+  const [installmentDetailItems, setInstallmentDetailItems] = useState<InstallmentItemDetail[]>([]);
+
   const [monthlyBudget, setBudget] = useState(getMonthlyBudget());
 
   // 주간 뷰를 위한 선택된 주 기준 날짜
@@ -89,7 +100,11 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
     const budget = getMonthlyBudget();
     setBudget(budget);
 
-    // 1. 저장된 실제 거래 내역 조회
+    // 수동 추가 입력 할부금 로드
+    const manualVal = getManualInstallment(currentYearMonth);
+    setManualInstallmentStr(manualVal > 0 ? formatNumberWithComma(manualVal) : '');
+
+    // 1. 저장된 실제 거래 내역 조회 (당월)
     const txs = transactionDao.getTransactionsByMonth(currentYearMonth);
 
     // 2. 정기 결제 내역 합산
@@ -98,7 +113,6 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
 
     const expenseTotals: { [date: string]: number } = {};
     const savingsTotals: { [date: string]: number } = {};
-    let installmentSum = 0;
 
     // DB 거래 내역 반영 (할부인 경우 월 분할 청구액을 쓴돈으로 반영)
     txs.forEach((tx) => {
@@ -106,7 +120,6 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
         if (tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1) {
           const monthlyAmount = Math.round(tx.amount / tx.installmentMonths);
           expenseTotals[tx.date] = (expenseTotals[tx.date] || 0) + monthlyAmount;
-          installmentSum += monthlyAmount;
         } else {
           expenseTotals[tx.date] = (expenseTotals[tx.date] || 0) + tx.amount;
         }
@@ -146,9 +159,69 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
       }
     });
 
+    // 3. 과거 1년치 할부 결제건을 스캔하여 잔여 할부 계산 및 팝업용 상세 생성
+    const currentMoment = dayjs(`${currentYearMonth}-01`, 'YYYY-MM-DD');
+    const pastYearTxs: Transaction[] = [];
+
+    for (let m = 0; m < 12; m++) {
+      const ym = currentMoment.subtract(m, 'month').format('YYYY-MM');
+      const monthTxs = transactionDao.getTransactionsByMonth(ym);
+      pastYearTxs.push(...monthTxs);
+    }
+
+    const detailList: InstallmentItemDetail[] = [];
+    let autoSum = 0;
+
+    pastYearTxs.forEach((tx) => {
+      if (
+        tx.categoryType === 'EXPENSE' &&
+        tx.installmentType === 'INSTALLMENT' &&
+        tx.installmentMonths > 1
+      ) {
+        const txMoment = dayjs(tx.date, 'YYYY-MM-DD').startOf('month');
+        const monthsElapsed = currentMoment.diff(txMoment, 'month');
+
+        // 조회 월 기준 할부 회차가 남아있는 경우
+        if (monthsElapsed >= 0 && monthsElapsed < tx.installmentMonths) {
+          const monthlyAmount = Math.round(tx.amount / tx.installmentMonths);
+          const currentCount = monthsElapsed + 1;
+          const remainingCount = tx.installmentMonths - currentCount;
+
+          autoSum += monthlyAmount;
+
+          detailList.push({
+            id: tx.id,
+            merchant: tx.merchant,
+            cardCompany: tx.cardCompany || '카드',
+            monthlyAmount,
+            totalPrincipal: tx.amount,
+            installmentMonths: tx.installmentMonths,
+            currentCount,
+            remainingCount,
+            isManualInput: false,
+          });
+        }
+      }
+    });
+
+    if (manualVal > 0) {
+      detailList.push({
+        id: `manual_${currentYearMonth}`,
+        merchant: '사용자 직접 입력 건',
+        cardCompany: '',
+        monthlyAmount: manualVal,
+        totalPrincipal: manualVal,
+        installmentMonths: 1,
+        currentCount: 1,
+        remainingCount: 0,
+        isManualInput: true,
+      });
+    }
+
+    setInstallmentDetailItems(detailList);
     setDailyExpenseTotals(expenseTotals);
     setDailySavingsTotals(savingsTotals);
-    setThisMonthInstallmentTotal(installmentSum);
+    setThisMonthInstallmentTotal(autoSum + manualVal);
   }, [currentYearMonth]);
 
   // 화면 활성화(포커스) 및 거래/정기결제 변경 이벤트 발생 시 실시간 자동 재로드
@@ -168,6 +241,14 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
   const handleToggleViewMode = (mode: ViewMode) => {
     setMode(mode);
     setStorageViewMode(mode);
+  };
+
+  const handleSaveManualInstallment = () => {
+    const val = parseNumberFromComma(manualInstallmentStr);
+    const parsed = isNaN(val) ? 0 : val;
+    setManualInstallment(currentYearMonth, parsed);
+    Alert.alert('성공', `${currentYearMonth}월 수동 입력 할부금이 저장되었습니다.`);
+    loadCalendarData();
   };
 
   const dailyBudget = calculateDailyBudget(monthlyBudget, currentYearMonth);
@@ -264,12 +345,44 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
             }}
           />
 
-          {/* 월간 뷰 하단: 이번 달 총 할부 청구금액 카드 */}
+          {/* 월간 뷰 하단: 이번 달 총 할부 청구금액 카드 & 🔍 상세 모달 버튼 & 수동 기입 영역 */}
           <View style={styles.installmentSummaryCard}>
-            <Text style={styles.installmentCardTitle}>💳 이번 달 총 할부 청구금액</Text>
+            <View style={styles.installmentHeaderRow}>
+              <Text style={styles.installmentCardTitle}>💳 이번 달 총 할부 청구금액</Text>
+              <TouchableOpacity
+                style={styles.magnifierBtn}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={() => setInstallmentModalVisible(true)}
+              >
+                <Text style={styles.magnifierBtnText}>🔍 상세보기</Text>
+              </TouchableOpacity>
+            </View>
+
             <Text style={styles.installmentCardAmount}>
               {thisMonthInstallmentTotal.toLocaleString()} 원
             </Text>
+
+            <View style={styles.manualInputRow}>
+              <Text style={styles.manualInputLabel}>사용자 추가 기입:</Text>
+              <TextInput
+                style={styles.manualInput}
+                placeholder="0"
+                keyboardType="numeric"
+                value={manualInstallmentStr}
+                onChangeText={(text) => setManualInstallmentStr(formatNumberWithComma(text))}
+                disableFullscreenUI={true}
+              />
+              <Text style={styles.unitText}>원</Text>
+              <TouchableOpacity
+                style={styles.manualSaveBtn}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={handleSaveManualInstallment}
+              >
+                <Text style={styles.manualSaveBtnText}>저장</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </ScrollView>
       ) : (
@@ -397,6 +510,15 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
           })}
         </ScrollView>
       )}
+
+      {/* 할부 내역 🔍 상세 모달 */}
+      <InstallmentDetailModal
+        visible={installmentModalVisible}
+        currentYearMonth={currentYearMonth}
+        items={installmentDetailItems}
+        totalSum={thisMonthInstallmentTotal}
+        onClose={() => setInstallmentModalVisible(false)}
+      />
     </View>
   );
 };
@@ -447,16 +569,71 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#2196F3',
   },
+  installmentHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
   installmentCardTitle: {
     fontSize: 14,
     color: '#666666',
     fontWeight: '600',
-    marginBottom: 6,
+  },
+  magnifierBtn: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 14,
+  },
+  magnifierBtnText: {
+    fontSize: 12,
+    color: '#1976D2',
+    fontWeight: 'bold',
   },
   installmentCardAmount: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#1565C0',
+    marginBottom: 10,
+  },
+  manualInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#EEEEEE',
+    gap: 6,
+  },
+  manualInputLabel: {
+    fontSize: 12,
+    color: '#616161',
+  },
+  manualInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontSize: 13,
+    color: '#212121',
+    backgroundColor: '#FAFAFA',
+  },
+  unitText: {
+    fontSize: 12,
+    color: '#616161',
+  },
+  manualSaveBtn: {
+    backgroundColor: '#2196F3',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  manualSaveBtnText: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
   },
   /* 주간 뷰 스타일 */
   weeklyScrollView: {

@@ -52,3 +52,11 @@ export const getLastHolidaySync = (): string | null => {
 export const setLastHolidaySync = (isoTimestamp: string): void => {
   storage.set(KEYS.LAST_HOLIDAY_SYNC, isoTimestamp);
 };
+
+export const getManualInstallment = (yearMonthStr: string): number => {
+  return storage.getNumber(`manual_installment_${yearMonthStr}`) ?? 0;
+};
+
+export const setManualInstallment = (yearMonthStr: string, amount: number): void => {
+  storage.set(`manual_installment_${yearMonthStr}`, amount);
+};

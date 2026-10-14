@@ -14,7 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { BarChart, LineChart } from 'react-native-gifted-charts';
 import { transactionDao } from '../database/transactionDao';
 import { recurringDao } from '../database/recurringDao';
-import { getNicknameCreatedAt } from '../storage/mmkv';
+import { getNicknameCreatedAt, getManualInstallment } from '../storage/mmkv';
 import { Transaction } from '../types/budget';
 
 dayjs.extend(isSameOrAfter);
@@ -133,7 +133,7 @@ export const StatisticsScreen = () => {
     return { month: m, monthName: `${m}월`, expense, savings };
   });
 
-  // 1~12월 월별 할부 청구금액 선 그래프(LineChart) 데이터 계산
+  // 1~12월 월별 할부 청구금액 선 그래프(LineChart) 데이터 계산 (자동 파싱 할부금 + 사용자 입력 수동 할부금)
   const lineChartData = Array.from({ length: 12 }, (_, i) => {
     const m = i + 1;
     const monthPrefix = `${selectedYear}-${String(m).padStart(2, '0')}`;
@@ -141,10 +141,13 @@ export const StatisticsScreen = () => {
       (tx) => tx.date.startsWith(monthPrefix) && tx.installmentType === 'INSTALLMENT' && tx.installmentMonths > 1
     );
 
-    const totalInstallment = mtxs.reduce(
+    const autoInstallment = mtxs.reduce(
       (sum, tx) => sum + Math.round(tx.amount / tx.installmentMonths),
       0
     );
+
+    const manualInstallment = getManualInstallment(monthPrefix);
+    const totalInstallment = autoInstallment + manualInstallment;
 
     return { value: totalInstallment / 10000, label: `${m}월` };
   });
