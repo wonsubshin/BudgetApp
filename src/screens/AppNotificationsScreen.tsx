@@ -26,14 +26,9 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<AppNotificationRaw | null>(null);
 
-  const loadNotifications = useCallback(async () => {
+  const loadNotifications = useCallback(() => {
     const list = appNotificationDao.getRecentNotifications();
     setNotifications(list);
-
-    try {
-      const updatedList = await appNotificationDao.syncNativeBufferToDb();
-      setNotifications(updatedList);
-    } catch (e) {}
   }, []);
 
   useEffect(() => {
@@ -49,30 +44,6 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
     if (!selectedNotification) return;
     Clipboard.setString(selectedNotification.rawContent);
     Alert.alert('복사 완료 📋', '앱 푸시 원문 내용이 클립보드에 복사되었습니다.');
-  };
-
-  const handleCopyDebugLog = () => {
-    let logStr = `=== BudgetApp Raw Push Notifications Diagnostic Log (${dayjs().format('YYYY-MM-DD HH:mm:ss')}) ===\n`;
-    logStr += `Total Stored Push Count: ${notifications.length}\n\n`;
-
-    const pkgCounts: { [pkg: string]: number } = {};
-    notifications.forEach((n) => {
-      const pkg = n.packageName || 'unknown';
-      pkgCounts[pkg] = (pkgCounts[pkg] || 0) + 1;
-    });
-
-    logStr += `--- Package Name Breakdown ---\n`;
-    Object.keys(pkgCounts).forEach((pkg) => {
-      logStr += `* ${pkg}: ${pkgCounts[pkg]}건\n`;
-    });
-
-    logStr += `\n--- Recent Raw Content Samples (Top 20) ---\n`;
-    notifications.slice(0, 20).forEach((n, idx) => {
-      logStr += `[${idx + 1}] Time: ${n.postTime} | Pkg: ${n.packageName}\nTitle: ${n.title}\nContent: ${n.rawContent}\n--------------------\n`;
-    });
-
-    Clipboard.setString(logStr);
-    Alert.alert('복사 완료 📋', '수신된 앱 푸시 디버그 진단 로그가 클립보드에 복사되었습니다! 개발자에게 붙여넣어 전달해 주세요.');
   };
 
   const handleDelete = (id: string) => {
@@ -180,15 +151,6 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
         <Text style={styles.noticeText}>
           ※ 수신된 앱 푸시 원문 전체는 30일간 자동 보관되며, 30일이 지나면 가장 오래된 기록부터 자동 삭제됩니다.
         </Text>
-
-        <TouchableOpacity
-          style={styles.copyLogBtn}
-          activeOpacity={0.7}
-          delayPressIn={0}
-          onPress={handleCopyDebugLog}
-        >
-          <Text style={styles.copyLogBtnText}>📋 디버그 로그 복사하기</Text>
-        </TouchableOpacity>
       </View>
 
       <FlatList
@@ -359,25 +321,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#E3F2FD',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    gap: 8,
   },
   noticeText: {
     fontSize: 11,
     color: '#1565C0',
     lineHeight: 16,
-  },
-  copyLogBtn: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#90CAF9',
-  },
-  copyLogBtnText: {
-    fontSize: 12,
-    color: '#1565C0',
-    fontWeight: 'bold',
   },
   listContent: {
     padding: 12,
