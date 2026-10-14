@@ -87,15 +87,16 @@ export const backupService = {
     return JSON.stringify(backupObj, null, 2);
   },
 
-  exportBackupToFile(): { success: boolean; filePath: string; jsonString: string } {
+  exportBackupToFile(): { success: boolean; fileName: string; filePath: string; jsonString: string } {
     const jsonString = this.generateBackupJson();
-    const fileName = `BudgetApp_Backup_${dayjs().format('YYYYMMDD_HHmmss')}.json`;
+    const fileName = `backup_${dayjs().format('YYYYMMDDHHmmss')}.txt`;
 
-    // 백업 텍스트 클립보드 복사 지원
+    // 백업 텍스트 클립보드 안전 복사 지원
     Clipboard.setString(jsonString);
 
     return {
       success: true,
+      fileName,
       filePath: `Download/${fileName}`,
       jsonString,
     };
@@ -117,7 +118,18 @@ export const backupService = {
         if (data.user.viewMode) setViewMode(data.user.viewMode as any);
       }
 
-      // 2. 거래 내역 복구
+      // 2. 파싱 예외 단어 먼저 복구
+      if (Array.isArray(data.parseExceptions)) {
+        data.parseExceptions.forEach((ex) => {
+          try {
+            parseExceptionDao.insertException(ex.keyword, ex.applyPush, ex.applySms);
+          } catch (e) {
+            // Ignore
+          }
+        });
+      }
+
+      // 3. 거래 내역 복구 (예외 가맹점 "드렸어요!", "결제금액", "q.samsungcard.com" 자동 제외)
       if (Array.isArray(data.transactions)) {
         data.transactions.forEach((tx) => {
           try {
@@ -128,7 +140,7 @@ export const backupService = {
         });
       }
 
-      // 3. 정기 결제 내역 복구
+      // 4. 정기 결제 내역 복구
       if (Array.isArray(data.recurringRules)) {
         data.recurringRules.forEach((rule) => {
           try {
@@ -139,22 +151,11 @@ export const backupService = {
         });
       }
 
-      // 4. 커스텀 공휴일 복구
+      // 5. 커스텀 공휴일 복구
       if (Array.isArray(data.customHolidays)) {
         data.customHolidays.forEach((h) => {
           try {
             holidayDao.upsertHoliday(h);
-          } catch (e) {
-            // Ignore
-          }
-        });
-      }
-
-      // 5. 파싱 예외 단어 복구
-      if (Array.isArray(data.parseExceptions)) {
-        data.parseExceptions.forEach((ex) => {
-          try {
-            parseExceptionDao.insertException(ex.keyword, ex.applyPush, ex.applySms);
           } catch (e) {
             // Ignore
           }
@@ -167,6 +168,9 @@ export const backupService = {
           setManualInstallment(ym, data.manualInstallments[ym]);
         });
       }
+
+      // 7. 복구 완료 후 전체 예외 단어 및 무효 키워드 거래 내역 최종 정제 정돈
+      transactionDao.purgeAllExceptionMatchedTransactions();
 
       return { success: true, message: '백업 데이터가 성공적으로 완벽 복구되었습니다!' };
     } catch (e: any) {

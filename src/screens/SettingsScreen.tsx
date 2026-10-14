@@ -136,24 +136,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // 가계부 전체 데이터 JSON 백업 내보내기
+  // 가계부 전체 데이터 backup_YYYYMMDDhhmmss.txt 파일 백업 생성
   const handleExportBackupData = () => {
     try {
-      const jsonStr = backupService.generateBackupJson();
-      Clipboard.setString(jsonStr);
+      const result = backupService.exportBackupToFile();
       Alert.alert(
-        '📦 백업 생성 완료',
-        '가계부 전체 데이터(닉네임, 예산, 거래 내역, 정기결제, 예외단어 등)가 JSON 포맷으로 생성되어 클립보드에 복사되었습니다!\n\n다른 기기에서 [백업 데이터 복구] 시 이 문구를 그대로 붙여넣으시면 동일하게 복구됩니다.'
+        '📄 백업 파일 생성 완료',
+        `가계부 전체 데이터가 '${result.fileName}' 파일 포맷으로 생성되어 클립보드 복사 및 Download 폴더에 백업 생성되었습니다!\n\n데이터 용량이 커도 텍스트 파일(${result.fileName}) 형태로 안전하게 보관/이동하실 수 있습니다.`
       );
     } catch (e: any) {
-      Alert.alert('백업 실패', e?.message || '백업 데이터 생성 중 오류가 발생했습니다.');
+      Alert.alert('백업 실패', e?.message || '백업 파일 생성 중 오류가 발생했습니다.');
     }
   };
 
   // JSON 백업 데이터 복구 실행
   const handleExecuteRestore = () => {
     if (!restoreJsonInput.trim()) {
-      Alert.alert('알림', '복구할 JSON 백업 데이터 내용을 입력하거나 붙여넣어 주세요.');
+      Alert.alert('알림', '복구할 백업 파일(JSON/TXT)의 데이터 내용을 입력하거나 붙여넣어 주세요.');
       return;
     }
 
@@ -293,11 +292,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </View>
       </View>
 
-      {/* 2. 결제 데이터 백업 및 데이터 복구 영역 */}
+      {/* 2. 결제 데이터 파일 백업 및 복구 영역 */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>📦 데이터 백업 및 복구 (JSON)</Text>
+        <Text style={styles.sectionTitle}>📦 백업 파일 다운로드 및 복구</Text>
         <Text style={styles.sectionSub}>
-          가계부 이력, 닉네임, 예산, 정기결제, 예외문구 등의 전체 데이터를 JSON 포맷으로 백업하거나 복구합니다.
+          가계부 이력 전체를 'backup_YYYYMMDDhhmmss.txt' 파일로 생성하여 다운로드하거나 복구합니다.
         </Text>
         <View style={styles.row}>
           <TouchableOpacity
@@ -306,7 +305,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             delayPressIn={0}
             onPress={handleExportBackupData}
           >
-            <Text style={styles.syncBtnText}>📦 전체 백업 생성</Text>
+            <Text style={styles.syncBtnText}>📄 백업 파일 생성</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -544,15 +543,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>📥 백업 데이터 붙여넣기 복구</Text>
+            <Text style={styles.modalTitle}>📥 백업 파일/텍스트 복구</Text>
             <Text style={styles.modalSubText}>
-              복사한 JSON 백업 데이터 텍스트를 아래 입력창에 붙여넣고 [복구 실행] 버튼을 눌러주세요.
+              백업받은 TXT/JSON 백업 파일의 텍스트 전체를 아래 입력창에 붙여넣고 [복구 실행] 버튼을 눌러주세요.
             </Text>
 
             <TextInput
               style={styles.modalInput}
               multiline
-              placeholder="여기에 JSON 백업 데이터를 붙여넣으세요..."
+              placeholder="여기에 백업 파일(JSON/TXT) 텍스트를 붙여넣으세요..."
               placeholderTextColor="#9E9E9E"
               value={restoreJsonInput}
               onChangeText={setRestoreJsonInput}

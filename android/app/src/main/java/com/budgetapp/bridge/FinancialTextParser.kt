@@ -123,7 +123,12 @@ object FinancialTextParser {
             return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
         }
 
-        // 0. 동적으로 DB에서 불러온 영역별 예외 문구가 포함된 메시지는 파싱에서 즉시 제외
+        // 0-1. 프로모션/쿠폰/명세서 마케팅 문구 제외 ("드렸어요", "혜택", "쿠폰", "결제예정", "명세서", "이용대금")
+        if (bodyToParse.contains("드렸어요") || bodyToParse.contains("혜택") || bodyToParse.contains("쿠폰") || bodyToParse.contains("결제예정") || bodyToParse.contains("명세서") || bodyToParse.contains("이용대금")) {
+            return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
+        }
+
+        // 0-2. 동적으로 DB에서 불러온 영역별 예외 문구가 포함된 메시지는 파싱에서 즉시 제외
         val sourceUpper = sourceType.uppercase(Locale.getDefault())
         synchronized(dynamicExceptions) {
             for (rule in dynamicExceptions) {
@@ -249,6 +254,9 @@ object FinancialTextParser {
 
         // 가맹점 명칭 정제 (예: "LGU+ 통신(452325)" -> "LGU+ 통신")
         merchant = merchant.replace("\\([0-9]+\\)".toRegex(), "").trim()
+        if (merchant.contains("드렸어요") || merchant.contains("결제금액") || merchant.contains("q.samsungcard.com")) {
+            return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
+        }
         if (merchant.isBlank()) merchant = "카드 결제"
 
         return ParsedPaymentResult(

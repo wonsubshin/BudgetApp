@@ -1,10 +1,21 @@
 import { DeviceEventEmitter } from 'react-native';
 import { getDb } from './db';
 import { Transaction } from '../types/budget';
+import { parseExceptionDao } from './parseExceptionDao';
 
 export const transactionDao = {
   insertTransaction(tx: Transaction): void {
     const db = getDb();
+
+    // 파싱 예외 단어 및 무효 가맹점 키워드 체크 ("드렸어요!", "결제금액", "q.samsungcard.com" 등)
+    if (
+      tx.merchant.includes('드렸어요') ||
+      tx.merchant.includes('결제금액') ||
+      tx.merchant.includes('q.samsungcard.com')
+    ) {
+      console.log(`⚠️ 예외 가맹점 키워드 차단: ${tx.merchant}`);
+      return;
+    }
 
     // 중복 체크: 시분초(created_at) OR 날짜(date), 사용처(merchant), 금액(amount)이 동일한 기존 기록이 있는지 확인
     if (tx.createdAt) {
@@ -105,12 +116,47 @@ export const transactionDao = {
     const trimmed = keyword.trim();
     if (!trimmed) return 0;
     try {
-      const res = db.execute('DELETE FROM transactions WHERE merchant LIKE ?;', [`%${trimmed}%`]);
+      const res = db.execute('DELETE FROM transactions WHERE merchant LIKE ? OR card_company LIKE ?;', [
+        `%${trimmed}%`,
+        `%${trimmed}%`,
+      ]);
       DeviceEventEmitter.emit('TRANSACTION_UPDATED');
       return res.rowsAffected || 0;
     } catch (e) {
       return 0;
     }
+  },
+
+  purgeAllExceptionMatchedTransactions(): number {
+    const db = getDb();
+    const parseExceptions = parseExceptionDao.getAllExceptions();
+    let totalPurged = 0;
+
+    parseExceptions.forEach((e) => {
+      if (e.keyword.trim()) {
+        try {
+          const res = db.execute(
+            'DELETE FROM transactions WHERE merchant LIKE ? OR card_company LIKE ?;',
+            [`%${e.keyword.trim()}%`, `%${e.keyword.trim()}%`]
+          );
+          totalPurged += res.rowsAffected || 0;
+        } catch (err) {}
+      }
+    });
+
+    // 기본 무효 가맹점 정제 ("드렸어요", "결제금액", "q.samsungcard.com")
+    try {
+      const res1 = db.execute("DELETE FROM transactions WHERE merchant LIKE '%드렸어요%';");
+      const res2 = db.execute("DELETE FROM transactions WHERE merchant LIKE '%결제금액%';");
+      const res3 = db.execute("DELETE FROM transactions WHERE merchant LIKE '%q.samsungcard.com%';");
+      totalPurged += (res1.rowsAffected || 0) + (res2.rowsAffected || 0) + (res3.rowsAffected || 0);
+    } catch (err) {}
+
+    if (totalPurged > 0) {
+      DeviceEventEmitter.emit('TRANSACTION_UPDATED');
+    }
+
+    return totalPurged;
   },
 
   getTransactionsByDate(dateStr: string): Transaction[] {
