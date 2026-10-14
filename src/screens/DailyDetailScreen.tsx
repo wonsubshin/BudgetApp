@@ -6,7 +6,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  Modal,
   DeviceEventEmitter,
+  Pressable,
 } from 'react-native';
 import dayjs from 'dayjs';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
@@ -24,6 +26,10 @@ export const DailyDetailScreen = ({ route }: any) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+
+  // 원문 메세지 상세 팝업 상태
+  const [rawModalVisible, setRawModalVisible] = useState(false);
+  const [selectedRawTx, setSelectedRawTx] = useState<Transaction | null>(null);
 
   const loadTransactions = useCallback(() => {
     const dbList = transactionDao.getTransactionsByDate(dateStr);
@@ -139,6 +145,11 @@ export const DailyDetailScreen = ({ route }: any) => {
     setModalVisible(true);
   };
 
+  const handleShowRawText = (tx: Transaction) => {
+    setSelectedRawTx(tx);
+    setRawModalVisible(true);
+  };
+
   const handleDelete = (id: string) => {
     if (id.startsWith('recurring_')) {
       Alert.alert('안내', '정기 결제/적금 항목은 [환경 설정 -> 정기 결제 내역 관리]에서 삭제하실 수 있습니다.');
@@ -185,7 +196,10 @@ export const DailyDetailScreen = ({ route }: any) => {
     const monthlyInstallmentAmount = isInstallment ? Math.round(item.amount / item.installmentMonths) : item.amount;
 
     return (
-      <View style={styles.card}>
+      <Pressable
+        style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}
+        onPress={() => handleShowRawText(item)}
+      >
         <View style={styles.cardHeader}>
           <View style={styles.badgeRow}>
             <Text
@@ -244,7 +258,7 @@ export const DailyDetailScreen = ({ route }: any) => {
             </View>
           )}
         </View>
-      </View>
+      </Pressable>
     );
   };
 
@@ -291,6 +305,48 @@ export const DailyDetailScreen = ({ route }: any) => {
         onClose={() => setModalVisible(false)}
         onSave={handleSave}
       />
+
+      {/* 수신된 결제 문자 / App Push 원문 메세지 상세 팝업 */}
+      <Modal
+        visible={rawModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRawModalVisible(false)}
+      >
+        <View style={styles.rawModalOverlay}>
+          <View style={styles.rawModalContainer}>
+            <Text style={styles.rawModalTitle}>💳 거래 수신 원문 메세지 내용</Text>
+
+            {selectedRawTx && (
+              <View style={styles.rawModalContent}>
+                <Text style={styles.rawMetaLabel}>사용처 / 가맹점: <Text style={styles.rawMetaValue}>{selectedRawTx.merchant}</Text></Text>
+                <Text style={styles.rawMetaLabel}>결제 금액: <Text style={styles.rawMetaValue}>{selectedRawTx.amount.toLocaleString()}원</Text></Text>
+                <Text style={styles.rawMetaLabel}>결제 일시: <Text style={styles.rawMetaValue}>{selectedRawTx.createdAt || selectedRawTx.date}</Text></Text>
+                <Text style={styles.rawMetaLabel}>결제 수단: <Text style={styles.rawMetaValue}>{selectedRawTx.paymentType === 'CARD' ? selectedRawTx.cardCompany || '카드' : '현금'}</Text></Text>
+                <Text style={styles.rawMetaLabel}>할부 정보: <Text style={styles.rawMetaValue}>{selectedRawTx.installmentType === 'INSTALLMENT' ? `${selectedRawTx.installmentMonths}개월 할부` : '일시불'}</Text></Text>
+
+                <Text style={styles.rawBoxTitle}>📱 수신된 원문 문자/푸시 내용:</Text>
+                <View style={styles.rawTextBox}>
+                  <Text style={styles.rawTextContent}>
+                    {selectedRawTx.isRecurring
+                      ? '[정기 결제/적금] 시스템에 설정된 자동 정기 규칙에 의해 등록된 항목입니다.'
+                      : `[승인 알림]\n일시: ${selectedRawTx.createdAt || selectedRawTx.date}\n카드사: ${selectedRawTx.cardCompany || '카드'}\n가맹점: ${selectedRawTx.merchant}\n금액: ${selectedRawTx.amount.toLocaleString()}원\n할부: ${selectedRawTx.installmentType === 'INSTALLMENT' ? `${selectedRawTx.installmentMonths}개월` : '일시불'}`}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.rawCloseBtn}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={() => setRawModalVisible(false)}
+            >
+              <Text style={styles.rawCloseBtnText}>닫기</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -442,5 +498,65 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 15,
+  },
+  /* 원문 상세 모달 스타일 */
+  rawModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  rawModalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 18,
+    maxHeight: '80%',
+  },
+  rawModalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#212121',
+    marginBottom: 14,
+  },
+  rawModalContent: {
+    gap: 6,
+  },
+  rawMetaLabel: {
+    fontSize: 13,
+    color: '#666666',
+  },
+  rawMetaValue: {
+    fontWeight: 'bold',
+    color: '#212121',
+  },
+  rawBoxTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#1565C0',
+    marginTop: 10,
+  },
+  rawTextBox: {
+    backgroundColor: '#263238',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 4,
+  },
+  rawTextContent: {
+    color: '#80CBC4',
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: 'monospace',
+  },
+  rawCloseBtn: {
+    marginTop: 16,
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  rawCloseBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
 });

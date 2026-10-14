@@ -37,8 +37,11 @@ class AppNotificationListener : NotificationListenerService() {
         // 1. 수신된 모든 앱 푸시 원문을 로컬 DB(app_notifications_raw)에 표준 컬럼별 영구 저장 (30일 초과 데이터 자동 청소)
         saveRawNotification(packageName, title, text, bigText, fullContent, sbnObj.postTime)
 
-        // 2. 모든 카드사/금융 푸시 알림 실시간 결제 파싱
-        val result = FinancialTextParser.parse(fullContent, sbnObj.postTime)
+        // 2. DB에서 최근 예외 단어 규칙 로드
+        FinancialTextParser.loadExceptionsFromDb(this)
+
+        // 3. 모든 카드사/금융 푸시 알림 실시간 결제 파싱 (PUSH 영역)
+        val result = FinancialTextParser.parse(fullContent, sbnObj.postTime, "PUSH")
         if (result.isPayment) {
             FinancialParserModule.emitPaymentEvent(
                 dateStr = result.dateStr,
@@ -90,6 +93,8 @@ class AppNotificationListener : NotificationListenerService() {
             val listener = instance ?: return 0
             var count = 0
             try {
+                FinancialTextParser.loadExceptionsFromDb(listener)
+
                 val activeNotifs = listener.activeNotifications ?: return 0
                 val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                 val targetDate = try { sdf.parse(targetDateStr) ?: Date() } catch (e: Exception) { Date() }
@@ -118,7 +123,7 @@ class AppNotificationListener : NotificationListenerService() {
                         val fullContent = "$title\n$text\n$bigText".trim()
 
                         if (fullContent.isNotBlank()) {
-                            val result = FinancialTextParser.parse(fullContent, postTime)
+                            val result = FinancialTextParser.parse(fullContent, postTime, "PUSH")
                             if (result.isPayment) {
                                 FinancialParserModule.emitPaymentEvent(
                                     dateStr = result.dateStr,

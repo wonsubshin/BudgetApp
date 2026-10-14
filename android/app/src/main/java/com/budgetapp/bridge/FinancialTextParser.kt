@@ -1,5 +1,6 @@
 package com.budgetapp.bridge
 
+import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -27,7 +28,6 @@ data class DynamicExceptionRule(
 
 object FinancialTextParser {
 
-    // 하드코딩 없이 DB에서 불러온 예외 규칙만을 동적으로 적용
     private val dynamicExceptions = mutableListOf<DynamicExceptionRule>()
 
     @JvmStatic
@@ -35,6 +35,37 @@ object FinancialTextParser {
         synchronized(dynamicExceptions) {
             dynamicExceptions.clear()
             dynamicExceptions.addAll(rules.filter { it.keyword.isNotBlank() })
+        }
+    }
+
+    @JvmStatic
+    fun loadExceptionsFromDb(context: Context) {
+        try {
+            val dbPath = context.getDatabasePath("budget_app.db")
+            if (!dbPath.exists()) return
+
+            val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            val cursor = db.rawQuery("SELECT keyword, apply_push, apply_sms FROM parse_exceptions;", null)
+            val rules = mutableListOf<DynamicExceptionRule>()
+            cursor?.use {
+                val kwIdx = it.getColumnIndex("keyword")
+                val pushIdx = it.getColumnIndex("apply_push")
+                val smsIdx = it.getColumnIndex("apply_sms")
+
+                while (it.moveToNext()) {
+                    val kw = if (kwIdx != -1) it.getString(kwIdx) ?: "" else ""
+                    val applyPush = if (pushIdx != -1) it.getInt(pushIdx) == 1 else true
+                    val applySms = if (smsIdx != -1) it.getInt(smsIdx) == 1 else true
+
+                    if (kw.isNotBlank()) {
+                        rules.add(DynamicExceptionRule(kw, applyPush, applySms))
+                    }
+                }
+            }
+            db.close()
+            setDynamicExceptionRules(rules)
+        } catch (e: Exception) {
+            // Ignore
         }
     }
 

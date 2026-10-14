@@ -34,9 +34,12 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
 }) => {
   const [messages, setMessages] = useState<SmsMessageItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 50; // 한 화면에 50건씩 페이징 처리
 
   useEffect(() => {
     if (visible) {
+      setCurrentPage(1);
       loadInboxMessages();
     }
   }, [visible]);
@@ -93,7 +96,7 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
           }
         }
 
-        setMessages(parsedItems.slice(0, 120));
+        setMessages(parsedItems);
       }
     } catch (e) {
       // Ignore
@@ -101,6 +104,12 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
       setIsLoading(false);
     }
   };
+
+  const totalPages = Math.ceil(messages.length / pageSize) || 1;
+  const paginatedMessages = messages.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   const renderHeader = () => (
     <View style={styles.tableHeader}>
@@ -156,18 +165,47 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
               <Text style={styles.loadingText}>수신함 결제 문자를 스캔 중입니다...</Text>
             </View>
           ) : (
-            <FlatList
-              data={messages}
-              keyExtractor={(item) => item.id}
-              ListHeaderComponent={renderHeader}
-              renderItem={renderItem}
-              contentContainerStyle={{ paddingVertical: 6 }}
-              ListEmptyComponent={
-                <View style={styles.emptyBox}>
-                  <Text style={styles.emptyText}>동기화 스캔된 결제 문자 내역이 없습니다.</Text>
-                </View>
-              }
-            />
+            <View style={{ flex: 1 }}>
+              <FlatList
+                data={paginatedMessages}
+                keyExtractor={(item) => item.id}
+                ListHeaderComponent={renderHeader}
+                renderItem={renderItem}
+                contentContainerStyle={{ paddingVertical: 6 }}
+                ListEmptyComponent={
+                  <View style={styles.emptyBox}>
+                    <Text style={styles.emptyText}>동기화 스캔된 결제 문자 내역이 없습니다.</Text>
+                  </View>
+                }
+              />
+
+              {/* 한 화면 50건 페이징 컨트롤러 */}
+              <View style={styles.paginationRow}>
+                <TouchableOpacity
+                  style={[styles.pageBtn, currentPage <= 1 && styles.disabledPageBtn]}
+                  disabled={currentPage <= 1}
+                  onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                >
+                  <Text style={[styles.pageBtnText, currentPage <= 1 && styles.disabledPageBtnText]}>
+                    ◀ 이전 50건
+                  </Text>
+                </TouchableOpacity>
+
+                <Text style={styles.pageInfoText}>
+                  {currentPage} / {totalPages} 페이지 (총 {messages.length}건)
+                </Text>
+
+                <TouchableOpacity
+                  style={[styles.pageBtn, currentPage >= totalPages && styles.disabledPageBtn]}
+                  disabled={currentPage >= totalPages}
+                  onPress={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  <Text style={[styles.pageBtnText, currentPage >= totalPages && styles.disabledPageBtnText]}>
+                    다음 50건 ▶
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           )}
 
           <TouchableOpacity style={styles.bottomCloseBtn} onPress={onClose}>
@@ -190,7 +228,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
-    maxHeight: '90%',
+    maxHeight: '92%',
   },
   headerRow: {
     flexDirection: 'row',
@@ -217,7 +255,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E3F2FD',
     padding: 10,
     borderRadius: 6,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   loadingBox: {
     padding: 40,
@@ -291,6 +329,37 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 11,
   },
+  paginationRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    marginTop: 6,
+  },
+  pageBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 6,
+  },
+  disabledPageBtn: {
+    backgroundColor: '#F5F5F5',
+  },
+  pageBtnText: {
+    fontSize: 12,
+    color: '#1976D2',
+    fontWeight: 'bold',
+  },
+  disabledPageBtnText: {
+    color: '#BDBDBD',
+  },
+  pageInfoText: {
+    fontSize: 12,
+    color: '#424242',
+    fontWeight: '600',
+  },
   emptyBox: {
     padding: 40,
     alignItems: 'center',
@@ -300,7 +369,7 @@ const styles = StyleSheet.create({
     color: '#9E9E9E',
   },
   bottomCloseBtn: {
-    marginTop: 12,
+    marginTop: 10,
     backgroundColor: '#2196F3',
     paddingVertical: 12,
     borderRadius: 8,
