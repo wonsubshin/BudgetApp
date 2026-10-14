@@ -7,9 +7,11 @@ export const transactionDao = {
   insertTransaction(tx: Transaction): void {
     const db = getDb();
 
-    // 예외 처리 관리 DB(parse_exceptions)에서 동적 키워드 리스트를 읽어와 파싱 예외 처리
+    // 예외 처리 관리 DB(parse_exceptions)에서 동적 키워드 리스트를 읽어와 파싱 예외 처리 (applySms가 true인 예외 단어만 차단)
     const exceptions = parseExceptionDao.getAllExceptions();
-    const isExcluded = exceptions.some((e) => e.keyword && tx.merchant.includes(e.keyword));
+    const isExcluded = exceptions.some(
+      (e) => e.keyword && e.applySms && tx.merchant.includes(e.keyword)
+    );
     if (isExcluded) {
       console.log(`⚠️ DB 파싱 예외 단어 매칭 차단: ${tx.merchant}`);
       return;
@@ -131,7 +133,8 @@ export const transactionDao = {
     let totalPurged = 0;
 
     parseExceptions.forEach((e) => {
-      if (e.keyword && e.keyword.trim()) {
+      // applySms가 true인 예외 단어만 SMS 거래 내역에서 삭제 (applySms가 false인 네이버페이는 보존)
+      if (e.keyword && e.keyword.trim() && e.applySms) {
         try {
           const res = db.execute(
             'DELETE FROM transactions WHERE merchant LIKE ? OR card_company LIKE ?;',
