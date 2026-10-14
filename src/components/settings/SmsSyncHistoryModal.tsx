@@ -8,6 +8,9 @@ import {
   StyleSheet,
   ActivityIndicator,
   NativeModules,
+  Clipboard,
+  Alert,
+  ScrollView,
 } from 'react-native';
 import dayjs from 'dayjs';
 
@@ -35,38 +38,73 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
   const [messages, setMessages] = useState<SmsMessageItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [debugLogText, setDebugLogText] = useState('');
+  const [showLogView, setShowLogView] = useState(false);
+
   const pageSize = 50; // 한 화면에 50건씩 페이징 처리
 
   useEffect(() => {
     if (visible) {
       setCurrentPage(1);
+      setShowLogView(false);
       loadInboxMessages();
     }
   }, [visible]);
 
   const loadInboxMessages = async () => {
     setIsLoading(true);
+    let logCollector = `=== BudgetApp SMS Sync Diagnostic Log (${dayjs().format('YYYY-MM-DD HH:mm:ss')}) ===\n`;
+    logCollector += `Native Module Present: ${Boolean(SmsHistoryParserModule)}\n`;
+
     try {
-      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.getInboxMessagesForInspection === 'function') {
-        const rawList: any[] = await SmsHistoryParserModule.getInboxMessagesForInspection();
-
-        const parsedItems: SmsMessageItem[] = (rawList || []).map((item, idx) => ({
-          id: item.id || `msg_${idx}_${Date.now()}`,
-          receivedTime: item.receivedTime || dayjs().format('YYYY-MM-DD HH:mm:ss'),
-          body: item.body || '(문자 내용)',
-          isTarget: Boolean(item.isTarget),
-          cardCompany: item.cardCompany || '카드',
-          amount: item.amount || 0,
-          merchant: item.merchant || '사용처',
-        }));
-
-        setMessages(parsedItems);
+      // 1. 진단 로그 수집 실행
+      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.syncSmsHistoryWithLog === 'function') {
+        try {
+          const syncRes = await SmsHistoryParserModule.syncSmsHistoryWithLog('ALL');
+          logCollector += `\n--- Native Sync Log Output ---\n${syncRes?.debugLog || '(로그 없음)'}\n`;
+        } catch (syncErr: any) {
+          logCollector += `\n⚠️ syncSmsHistoryWithLog Error: ${syncErr?.message || syncErr}\n`;
+        }
       }
-    } catch (e) {
-      // Ignore
+
+      // 2. 수신함 메시지 리스트 수집 실행
+      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.getInboxMessagesForInspection === 'function') {
+        try {
+          const rawList: any[] = await SmsHistoryParserModule.getInboxMessagesForInspection();
+          logCollector += `\nGetInboxMessages Count: ${rawList ? rawList.length : 0}\n`;
+
+          const parsedItems: SmsMessageItem[] = (rawList || []).map((item, idx) => ({
+            id: item.id || `msg_${idx}_${Date.now()}`,
+            receivedTime: item.receivedTime || dayjs().format('YYYY-MM-DD HH:mm:ss'),
+            body: item.body || '(문자 내용)',
+            isTarget: Boolean(item.isTarget),
+            cardCompany: item.cardCompany || '카드',
+            amount: item.amount || 0,
+            merchant: item.merchant || '사용처',
+          }));
+
+          setMessages(parsedItems);
+        } catch (inspectErr: any) {
+          logCollector += `\n⚠️ getInboxMessagesForInspection Error: ${inspectErr?.message || inspectErr}\n`;
+        }
+      } else {
+        logCollector += `\n⚠️ getInboxMessagesForInspection Method not found on NativeModule.\n`;
+      }
+    } catch (e: any) {
+      logCollector += `\n⚠️ General Error: ${e?.message || e}\n`;
     } finally {
       setIsLoading(false);
+      setDebugLogText(logCollector);
     }
+  };
+
+  const handleCopyDebugLog = () => {
+    if (!debugLogText) {
+      Alert.alert('알림', '복사할 디버그 로그가 존재하지 않습니다.');
+      return;
+    }
+    Clipboard.setString(debugLogText);
+    Alert.alert('복사 완료 📋', '디버그 진단 로그가 클립보드에 복사되었습니다! 채팅창에 붙여넣어 전달해 주세요.');
   };
 
   const totalPages = Math.ceil(messages.length / pageSize) || 1;
@@ -119,14 +157,37 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.noticeText}>
-            수신함 문자 중 카드 결제 조건에 부합하는 문자는 **[⭕ 파싱 대상]**으로 자동 수록되고, 일반/광고/예외 문자는 **[❌ 비대상]**으로 분류됩니다.
-          </Text>
+          {/* 디버그 로그 복사 및 로그 뷰 토글 버튼 라인 */}
+          <View style={styles.actionBtnRow}>
+            <TouchableOpacity
+              style={styles.copyLogBtn}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={handleCopyDebugLog}
+            >
+              <Text style={styles.copyLogBtnText}>📋 디버그 로그 복사하기</Text>
+            </TouchableOpacity>
 
-          {isLoading ? (
+            <TouchableOpacity
+              style={styles.toggleLogBtn}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={() => setShowLogView(!showLogView)}
+            >
+              <Text style={styles.toggleLogBtnText}>
+                {showLogView ? '📊 결과 목록 보기' : '🔍 진단 로그 텍스트 보기'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {showLogView ? (
+            <ScrollView style={styles.logScrollView}>
+              <Text style={styles.logText}>{debugLogText}</Text>
+            </ScrollView>
+          ) : isLoading ? (
             <View style={styles.loadingBox}>
               <ActivityIndicator size="large" color="#2196F3" />
-              <Text style={styles.loadingText}>수신함 결제 문자를 스캔 중입니다...</Text>
+              <Text style={styles.loadingText}>수신함 결제 문자를 스캔 진단 중입니다...</Text>
             </View>
           ) : (
             <View style={{ flex: 1 }}>
@@ -139,6 +200,9 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
                 ListEmptyComponent={
                   <View style={styles.emptyBox}>
                     <Text style={styles.emptyText}>동기화 스캔된 결제 문자 내역이 없습니다.</Text>
+                    <Text style={styles.emptySubText}>
+                      상단의 [📋 디버그 로그 복사하기] 버튼을 눌러 로그를 전달해 주세요.
+                    </Text>
                   </View>
                 }
               />
@@ -193,6 +257,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     maxHeight: '92%',
+    flex: 1,
   },
   headerRow: {
     flexDirection: 'row',
@@ -213,13 +278,51 @@ const styles = StyleSheet.create({
     color: '#757575',
     fontWeight: 'bold',
   },
-  noticeText: {
-    fontSize: 11,
-    color: '#616161',
-    backgroundColor: '#E3F2FD',
-    padding: 10,
-    borderRadius: 6,
+  actionBtnRow: {
+    flexDirection: 'row',
+    gap: 8,
     marginBottom: 10,
+  },
+  copyLogBtn: {
+    flex: 1,
+    backgroundColor: '#E3F2FD',
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#90CAF9',
+  },
+  copyLogBtnText: {
+    fontSize: 12,
+    color: '#1565C0',
+    fontWeight: 'bold',
+  },
+  toggleLogBtn: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  toggleLogBtnText: {
+    fontSize: 12,
+    color: '#424242',
+    fontWeight: '600',
+  },
+  logScrollView: {
+    flex: 1,
+    backgroundColor: '#1E1E1E',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+  },
+  logText: {
+    color: '#4CAF50',
+    fontSize: 11,
+    fontFamily: 'monospace',
+    lineHeight: 16,
   },
   loadingBox: {
     padding: 40,
@@ -325,12 +428,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   emptyBox: {
-    padding: 40,
+    padding: 30,
     alignItems: 'center',
   },
   emptyText: {
     fontSize: 13,
     color: '#9E9E9E',
+    fontWeight: 'bold',
+  },
+  emptySubText: {
+    fontSize: 11,
+    color: '#757575',
+    marginTop: 6,
   },
   bottomCloseBtn: {
     marginTop: 10,
