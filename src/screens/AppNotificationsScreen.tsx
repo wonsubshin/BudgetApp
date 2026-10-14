@@ -1,0 +1,235 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+} from 'react-native';
+import { appNotificationDao, AppNotificationRaw } from '../database/appNotificationDao';
+
+interface AppNotificationsScreenProps {
+  onBack?: () => void;
+}
+
+export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
+  onBack,
+}) => {
+  const [notifications, setNotifications] = useState<AppNotificationRaw[]>([]);
+
+  const loadNotifications = useCallback(() => {
+    const list = appNotificationDao.getRecentNotifications();
+    setNotifications(list);
+  }, []);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  const handleDelete = (id: string) => {
+    appNotificationDao.deleteNotification(id);
+    loadNotifications();
+  };
+
+  const handleClearAll = () => {
+    Alert.alert('전체 삭제', '저장된 모든 앱 푸시 로그를 삭제하시겠습니까?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: () => {
+          appNotificationDao.clearAllNotifications();
+          loadNotifications();
+        },
+      },
+    ]);
+  };
+
+  const renderHeader = () => (
+    <View style={styles.tableHeader}>
+      <Text style={[styles.th, { flex: 1.2 }]}>수신 시각</Text>
+      <Text style={[styles.th, { flex: 1 }]}>패키지/제목</Text>
+      <Text style={[styles.th, { flex: 2 }]}>원문 내용</Text>
+      <Text style={[styles.th, { flex: 0.6 }]}>삭제</Text>
+    </View>
+  );
+
+  const renderItem = ({ item }: { item: AppNotificationRaw }) => (
+    <View style={styles.tableRow}>
+      <Text style={[styles.tdTime, { flex: 1.2 }]}>{item.postTime}</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.tdPkg}>{item.packageName.split('.').pop() || item.packageName}</Text>
+        <Text style={styles.tdTitle} numberOfLines={1}>
+          {item.title || '(제목 없음)'}
+        </Text>
+      </View>
+      <Text style={[styles.tdContent, { flex: 2 }]} numberOfLines={3}>
+        {item.rawContent}
+      </Text>
+      <TouchableOpacity
+        style={[styles.deleteBtn, { flex: 0.6 }]}
+        activeOpacity={0.7}
+        delayPressIn={0}
+        onPress={() => handleDelete(item.id)}
+      >
+        <Text style={styles.deleteBtnText}>삭제</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.headerBanner}>
+        {onBack && (
+          <TouchableOpacity
+            style={styles.backBtn}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={onBack}
+          >
+            <Text style={styles.backBtnText}>◀ 뒤로</Text>
+          </TouchableOpacity>
+        )}
+        <Text style={styles.bannerTitle}>📨 수신된 앱 푸시 원문 로그 목록</Text>
+        <TouchableOpacity
+          style={styles.clearAllBtn}
+          activeOpacity={0.7}
+          delayPressIn={0}
+          onPress={handleClearAll}
+        >
+          <Text style={styles.clearAllBtnText}>전체 비우기</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.noticeText}>
+        ※ 수신된 앱 푸시 원문 전체는 30일간 자동 보관되며, 30일이 지나면 가장 오래된 기록부터 자동 삭제됩니다.
+      </Text>
+
+      <FlatList
+        data={notifications}
+        keyExtractor={(item) => item.id}
+        ListHeaderComponent={renderHeader}
+        renderItem={renderItem}
+        contentContainerStyle={styles.listContent}
+        ListEmptyComponent={
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyText}>보관된 앱 푸시 알림 로그가 없습니다.</Text>
+          </View>
+        }
+      />
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+  },
+  headerBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  backBtn: {
+    paddingRight: 10,
+  },
+  backBtnText: {
+    fontSize: 14,
+    color: '#2196F3',
+    fontWeight: 'bold',
+  },
+  bannerTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#212121',
+    flex: 1,
+  },
+  clearAllBtn: {
+    backgroundColor: '#FFEBEE',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  clearAllBtnText: {
+    fontSize: 12,
+    color: '#D32F2F',
+    fontWeight: 'bold',
+  },
+  noticeText: {
+    fontSize: 11,
+    color: '#757575',
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  listContent: {
+    padding: 12,
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#424242',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    marginBottom: 6,
+  },
+  th: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    marginBottom: 6,
+    alignItems: 'center',
+  },
+  tdTime: {
+    fontSize: 11,
+    color: '#616161',
+  },
+  tdPkg: {
+    fontSize: 11,
+    color: '#1565C0',
+    fontWeight: 'bold',
+  },
+  tdTitle: {
+    fontSize: 11,
+    color: '#212121',
+  },
+  tdContent: {
+    fontSize: 11,
+    color: '#424242',
+  },
+  deleteBtn: {
+    backgroundColor: '#FFEBEE',
+    paddingVertical: 6,
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteBtnText: {
+    fontSize: 11,
+    color: '#D32F2F',
+    fontWeight: 'bold',
+  },
+  emptyBox: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 13,
+    color: '#9E9E9E',
+  },
+});

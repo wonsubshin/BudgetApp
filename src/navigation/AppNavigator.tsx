@@ -12,6 +12,8 @@ import { DailyDetailScreen } from '../screens/DailyDetailScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { StatisticsScreen } from '../screens/StatisticsScreen';
 import { CustomHolidayScreen } from '../screens/CustomHolidayScreen';
+import { AppNotificationsScreen } from '../screens/AppNotificationsScreen';
+import { ParseExceptionsScreen } from '../screens/ParseExceptionsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -62,6 +64,8 @@ function MainTabContainer({ navigation }: any) {
           <SettingsScreen
             navigation={navigation}
             onOpenCustomHolidays={() => navigation.navigate('CustomHolidays')}
+            onOpenAppNotifications={() => navigation.navigate('AppNotifications')}
+            onOpenParseExceptions={() => navigation.navigate('ParseExceptions')}
           />
         )}
       </View>
@@ -168,6 +172,16 @@ export const AppNavigator = () => {
           name="CustomHolidays"
           component={CustomHolidayScreen}
           options={{ headerShown: true, title: '📅 임시공휴일 관리' }}
+        />
+        <Stack.Screen
+          name="AppNotifications"
+          component={AppNotificationsScreen}
+          options={{ headerShown: true, title: '📨 수신된 앱 푸시 원문 로그' }}
+        />
+        <Stack.Screen
+          name="ParseExceptions"
+          component={ParseExceptionsScreen}
+          options={{ headerShown: true, title: '🚫 파싱 예외 문구 관리' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

@@ -30,11 +30,15 @@ import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtil
 interface SettingsScreenProps {
   navigation?: any;
   onOpenCustomHolidays?: () => void;
+  onOpenAppNotifications?: () => void;
+  onOpenParseExceptions?: () => void;
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   navigation,
   onOpenCustomHolidays,
+  onOpenAppNotifications,
+  onOpenParseExceptions,
 }) => {
   const [budgetStr, setBudgetStr] = useState(formatNumberWithComma(getMonthlyBudget()));
   const [lastSync, setLastSync] = useState(getLastHolidaySync());
@@ -131,6 +135,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       } catch (e) {
         Alert.alert('안내', '스마트폰 [설정 -> 애플리케이션 -> 특별한 접근 -> 알림 접근 허용]에서 BudgetApp을 허용해 주세요.');
       }
+    }
+  };
+
+  const handleOpenNotificationsNav = () => {
+    if (onOpenAppNotifications) {
+      onOpenAppNotifications();
+    } else if (navigation && typeof navigation.navigate === 'function') {
+      navigation.navigate('AppNotifications');
+    }
+  };
+
+  const handleOpenParseExceptionsNav = () => {
+    if (onOpenParseExceptions) {
+      onOpenParseExceptions();
+    } else if (navigation && typeof navigation.navigate === 'function') {
+      navigation.navigate('ParseExceptions');
     }
   };
 
@@ -232,32 +252,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </View>
       </View>
 
-      {/* 2. 공휴일 동기화 */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🗓️ 공휴일 API 동기화</Text>
-        <Text style={styles.sectionSub}>
-          한국천문연구원 API를 통해 해당 연도의 법정/임시공휴일을 수신합니다.
-        </Text>
-        <Text style={styles.metaText}>
-          최근 동기화 시각:{' '}
-          {lastSync ? dayjs(lastSync).format('YYYY-MM-DD HH:mm') : '없음'}
-        </Text>
-        <TouchableOpacity
-          style={styles.syncBtn}
-          activeOpacity={0.7}
-          delayPressIn={0}
-          onPress={handleSyncHolidays}
-          disabled={isSyncing}
-        >
-          {isSyncing ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.syncBtnText}>🔄 공휴일 최신 동기화 실행</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* 3. 결제 문자 / 푸시 수신함 실시간 동기화 */}
+      {/* 2. 결제 문자 / 푸시 수신함 실시간 동기화 및 관리 메뉴 */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>📱 수신함 결제 내역 실시간 동기화</Text>
         <Text style={styles.sectionSub}>
@@ -285,6 +280,51 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           onPress={handleOpenNotificationAccessSettings}
         >
           <Text style={styles.notifAccessBtnText}>🔔 실시간 앱 푸시 알림 접근 권한 설정 (터치하여 활성화)</Text>
+        </TouchableOpacity>
+
+        {/* 수신된 앱 푸시 원문 로그 목록 메뉴 버튼 */}
+        <TouchableOpacity
+          style={styles.menuNavBtn}
+          activeOpacity={0.7}
+          delayPressIn={0}
+          onPress={handleOpenNotificationsNav}
+        >
+          <Text style={styles.menuNavBtnText}>📨 수신된 앱 푸시 원문 로그 목록 (표 형태 조회) ➔</Text>
+        </TouchableOpacity>
+
+        {/* 파싱 예외 문구 관리 메뉴 버튼 */}
+        <TouchableOpacity
+          style={[styles.menuNavBtn, { backgroundColor: '#FFF3E0', borderColor: '#FFB74D' }]}
+          activeOpacity={0.7}
+          delayPressIn={0}
+          onPress={handleOpenParseExceptionsNav}
+        >
+          <Text style={[styles.menuNavBtnText, { color: '#E65100' }]}>🚫 결제 파싱 예외 문구 등록/관리 ➔</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 3. 공휴일 동기화 */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🗓️ 공휴일 API 동기화</Text>
+        <Text style={styles.sectionSub}>
+          한국천문연구원 API를 통해 해당 연도의 법정/임시공휴일을 수신합니다.
+        </Text>
+        <Text style={styles.metaText}>
+          최근 동기화 시각:{' '}
+          {lastSync ? dayjs(lastSync).format('YYYY-MM-DD HH:mm') : '없음'}
+        </Text>
+        <TouchableOpacity
+          style={styles.syncBtn}
+          activeOpacity={0.7}
+          delayPressIn={0}
+          onPress={handleSyncHolidays}
+          disabled={isSyncing}
+        >
+          {isSyncing ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <Text style={styles.syncBtnText}>🔄 공휴일 최신 동기화 실행</Text>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -497,6 +537,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#1565C0',
     fontWeight: '600',
+  },
+  menuNavBtn: {
+    marginTop: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  menuNavBtnText: {
+    fontSize: 12,
+    color: '#424242',
+    fontWeight: 'bold',
   },
   addBtn: {
     backgroundColor: '#E3F2FD',

@@ -25,6 +25,7 @@ class AppNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val sbnObj = sbn ?: return
+        val packageName = sbnObj.packageName ?: ""
         val extras = sbnObj.notification.extras
         val title = extras.getCharSequence("android.title")?.toString() ?: ""
         val text = extras.getCharSequence("android.text")?.toString() ?: ""
@@ -33,7 +34,10 @@ class AppNotificationListener : NotificationListenerService() {
 
         if (fullContent.isBlank()) return
 
-        // 모든 카드사/금융 푸시 알림 실시간 파싱
+        // 1. 수신된 모든 앱 푸시 원문을 로컬 DB(app_notifications_raw)에 표준 컬럼별 영구 저장 (30일 초과 데이터 자동 청소)
+        saveRawNotification(packageName, title, text, bigText, fullContent, sbnObj.postTime)
+
+        // 2. 모든 카드사/금융 푸시 알림 실시간 결제 파싱
         val result = FinancialTextParser.parse(fullContent, sbnObj.postTime)
         if (result.isPayment) {
             FinancialParserModule.emitPaymentEvent(
@@ -46,6 +50,36 @@ class AppNotificationListener : NotificationListenerService() {
                 installmentMonths = result.installmentMonths,
                 createdAtStr = result.createdAtStr
             )
+        }
+    }
+
+    private fun saveRawNotification(
+        packageName: String,
+        title: String,
+        text: String,
+        bigText: String,
+        fullContent: String,
+        postTimeMs: Long
+    ) {
+        try {
+            val dbPath = getDatabasePath("budget_app.db")
+            if (!dbPath.exists()) return
+
+            val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            val postTimeStr = sdf.format(Date(if (postTimeMs > 0) postTimeMs else System.currentTimeMillis()))
+            val id = "${postTimeMs}_${(1000..9999).random()}"
+
+            db.execSQL(
+                "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                arrayOf(id, packageName, title, text, bigText, fullContent, postTimeStr)
+            )
+
+            // 30일 지난 오래된 앱 푸시 원문 자동 삭제
+            db.execSQL("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days');")
+            db.close()
+        } catch (e: Exception) {
+            // Ignore
         }
     }
 

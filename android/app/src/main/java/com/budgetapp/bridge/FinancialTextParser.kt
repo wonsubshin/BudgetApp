@@ -21,6 +21,20 @@ data class ParsedPaymentResult(
 
 object FinancialTextParser {
 
+    private val dynamicExceptions = mutableSetOf("광고", "q.samsungcard.com", "네이버페이", "Naver Pay")
+
+    @JvmStatic
+    fun setDynamicExceptions(keywords: List<String>) {
+        synchronized(dynamicExceptions) {
+            dynamicExceptions.clear()
+            dynamicExceptions.addAll(keywords.filter { it.isNotBlank() })
+            // 기본 예외 키워드 안전 보장
+            dynamicExceptions.add("광고")
+            dynamicExceptions.add("q.samsungcard.com")
+            dynamicExceptions.add("네이버페이")
+        }
+    }
+
     /**
      * 삼성 갤럭시 RCS 채팅+ JSON 구조(open_rich_card Layout)에서 텍스트(TextView) 영역을 자동 추출
      */
@@ -71,9 +85,13 @@ object FinancialTextParser {
             return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
         }
 
-        // 0. "광고" 문구 또는 "q.samsungcard.com" 마케팅 링크 포함 메시지는 파싱에서 즉시 제외
-        if (bodyToParse.contains("광고") || bodyToParse.contains("q.samsungcard.com")) {
-            return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
+        // 0. 동적으로 등록된 예외 문구(광고, q.samsungcard.com, 네이버페이 등)가 포함된 메시지는 파싱에서 즉시 제외
+        synchronized(dynamicExceptions) {
+            for (ex in dynamicExceptions) {
+                if (bodyToParse.contains(ex)) {
+                    return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
+                }
+            }
         }
 
         // 1. 카드사 및 승인 문구 체크 (카드사 + 승인/자동결제/결제/접수)

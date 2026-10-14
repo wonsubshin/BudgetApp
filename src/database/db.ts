@@ -60,6 +60,36 @@ export const initDatabase = (): void => {
     );
   `);
 
+  // 원문 앱푸시 로컬 저장용 테이블 (표준 FCM/안드로이드 컬럼 파싱 구조)
+  db.execute(`
+    CREATE TABLE IF NOT EXISTS app_notifications_raw (
+      id TEXT PRIMARY KEY NOT NULL,
+      package_name TEXT NOT NULL,
+      title TEXT,
+      text TEXT,
+      big_text TEXT,
+      raw_content TEXT NOT NULL,
+      post_time TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // 파싱 예외 키워드 동적 관리 테이블
+  db.execute(`
+    CREATE TABLE IF NOT EXISTS parse_exceptions (
+      id TEXT PRIMARY KEY NOT NULL,
+      keyword TEXT UNIQUE NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
+  // 초기 예외 키워드 시드 세팅 ('광고', 'q.samsungcard.com', '네이버페이')
+  try {
+    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword) VALUES ('1', '광고');`);
+    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword) VALUES ('2', 'q.samsungcard.com');`);
+    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword) VALUES ('3', '네이버페이');`);
+  } catch (e) {}
+
   // 기존 설치 기기 컬럼 마이그레이션
   try {
     db.execute('ALTER TABLE transactions ADD COLUMN card_company TEXT;');

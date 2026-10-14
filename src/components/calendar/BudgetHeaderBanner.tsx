@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { ViewMode } from '../../types/budget';
+import { getNickname } from '../../storage/mmkv';
 
 interface BudgetHeaderBannerProps {
   viewMode: ViewMode;
@@ -15,8 +16,14 @@ export const BudgetHeaderBanner: React.FC<BudgetHeaderBannerProps> = ({
   dailyBudget,
   weeklyRemaining,
 }) => {
+  const nickname = getNickname();
+
   return (
     <View style={styles.container}>
+      <Text style={styles.headerTitle}>
+        📅 {nickname ? `${nickname}님의 가계부` : '가계부'}
+      </Text>
+
       <View style={styles.topRow}>
         <Text style={styles.dailyBudgetText}>
           일일 권장 예산: <Text style={styles.boldText}>{dailyBudget.toLocaleString()}원</Text>
@@ -59,6 +66,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#EEEEEE',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1565C0',
+    marginBottom: 8,
   },
   topRow: {
     flexDirection: 'row',
