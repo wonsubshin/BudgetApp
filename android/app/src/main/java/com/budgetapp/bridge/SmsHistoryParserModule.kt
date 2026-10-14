@@ -40,19 +40,25 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
             if (!dbPath.exists()) return
 
             val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
-            val cursor = db.rawQuery("SELECT keyword FROM parse_exceptions;", null)
-            val keywords = mutableListOf<String>()
+            val cursor = db.rawQuery("SELECT keyword, apply_push, apply_sms FROM parse_exceptions;", null)
+            val rules = mutableListOf<DynamicExceptionRule>()
             cursor?.use {
-                val idx = it.getColumnIndex("keyword")
+                val kwIdx = it.getColumnIndex("keyword")
+                val pushIdx = it.getColumnIndex("apply_push")
+                val smsIdx = it.getColumnIndex("apply_sms")
+
                 while (it.moveToNext()) {
-                    val kw = if (idx != -1) it.getString(idx) ?: "" else ""
+                    val kw = if (kwIdx != -1) it.getString(kwIdx) ?: "" else ""
+                    val applyPush = if (pushIdx != -1) it.getInt(pushIdx) == 1 else true
+                    val applySms = if (smsIdx != -1) it.getInt(smsIdx) == 1 else true
+
                     if (kw.isNotBlank()) {
-                        keywords.add(kw)
+                        rules.add(DynamicExceptionRule(kw, applyPush, applySms))
                     }
                 }
             }
             db.close()
-            FinancialTextParser.setDynamicExceptions(keywords)
+            FinancialTextParser.setDynamicExceptionRules(rules)
         } catch (e: Exception) {
             // Ignore
         }
@@ -60,11 +66,11 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
 
     @ReactMethod
     fun syncSmsHistoryWithLog(targetDateStr: String, promise: Promise) {
-        // DB에 등록된 파싱 예외 단어 동적 적용
+        // DB에 등록된 영역별 파싱 예외 단어 동적 적용
         loadDynamicExceptionsFromDb()
 
         val logBuilder = StringBuilder()
-        logBuilder.append("=== BudgetApp Financial Sync Diagnostic Log ===\n")
+        logBuilder.append("=== BudgetApp SMS & MMS Sync Diagnostic Log ===\n")
         logBuilder.append("Device: ").append(Build.MANUFACTURER ?: "").append(" ").append(Build.MODEL ?: "").append("\n")
         logBuilder.append("Android SDK: ").append(Build.VERSION.SDK_INT.toString()).append("\n")
 
@@ -79,17 +85,8 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
             var scannedCount = 0
             val processedBodies = HashSet<String>()
 
-            // -------------------------------------------------------------
-            // [우선순위 1] 앱 푸시 알림 수신 히스토리 먼저 파싱
-            // -------------------------------------------------------------
-            logBuilder.append("--- 1. Querying App Push Notifications ---\n")
-            val pushCount = AppNotificationListener.syncPushHistoryForDate(targetDateStr)
-            logBuilder.append("Push Notification Sync Count: ").append(pushCount.toString()).append("\n\n")
-
-            // -------------------------------------------------------------
-            // [우선순위 2] 삼성 갤럭시 RCS 전용 저장소 조회 (content://im/rcs_read_im)
-            // -------------------------------------------------------------
-            logBuilder.append("--- 2. Querying Samsung RCS IM Storage (content://im/rcs_read_im) ---\n")
+            // 1. 삼성 갤럭시 RCS 전용 저장소 조회 (content://im/rcs_read_im)
+            logBuilder.append("--- 1. Querying Samsung RCS IM Storage (content://im/rcs_read_im) ---\n")
             try {
                 val rcsUri = Uri.parse("content://im/rcs_read_im")
                 val rcsCursor = contentResolver.query(
@@ -124,7 +121,7 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                             val fallbackTime = if (msgTime > 0) msgTime else System.currentTimeMillis()
                             val msgReceivedDateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTime))
 
-                            val result = FinancialTextParser.parse(body, fallbackTime)
+                            val result = FinancialTextParser.parse(body, fallbackTime, "SMS")
                             if (result.isPayment) {
                                 val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
                                         (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
@@ -157,78 +154,8 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 logBuilder.append("Error querying content://im/rcs_read_im: ").append(e.message ?: "").append("\n")
             }
 
-            // -------------------------------------------------------------
-            // [우선순위 3] SMS 수신함 독립 조회 (content://sms/inbox)
-            // -------------------------------------------------------------
-            logBuilder.append("\n--- 3. Querying SMS Inbox (content://sms/inbox) ---\n")
-            try {
-                val smsUri = Uri.parse("content://sms/inbox")
-                val smsCursor = contentResolver.query(
-                    smsUri,
-                    arrayOf("body", "date"),
-                    null,
-                    null,
-                    "date DESC LIMIT 200"
-                )
-
-                if (smsCursor != null) {
-                    logBuilder.append("SMS row count: ").append(smsCursor.count.toString()).append("\n")
-                    smsCursor.use { cursor ->
-                        val bodyIndex = cursor.getColumnIndex("body")
-                        val dateIndex = cursor.getColumnIndex("date")
-
-                        while (cursor.moveToNext()) {
-                            val body = if (bodyIndex != -1) cursor.getString(bodyIndex) ?: "" else ""
-                            var smsTime = if (dateIndex != -1) cursor.getLong(dateIndex) else 0L
-
-                            if (body.isBlank()) continue
-                            if (processedBodies.contains(body)) continue
-                            processedBodies.add(body)
-                            scannedCount++
-
-                            if (smsTime in 1..9999999999L) {
-                                smsTime *= 1000L
-                            }
-
-                            val fallbackTime = if (smsTime > 0) smsTime else System.currentTimeMillis()
-                            val result = FinancialTextParser.parse(body, fallbackTime)
-
-                            if (result.isPayment) {
-                                val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
-                                        (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
-                                        result.dateStr == targetDateStr
-
-                                logBuilder.append("[SMS Match Found] Date: ").append(result.dateStr)
-                                    .append(" | Card: ").append(result.cardCompany)
-                                    .append(" | Amount: ").append(result.amount.toString())
-                                    .append(" | Merchant: ").append(result.merchant)
-                                    .append(" | DateFilterMatch: ").append(matchDate.toString()).append("\n")
-
-                                if (matchDate) {
-                                    FinancialParserModule.emitPaymentEvent(
-                                        dateStr = result.dateStr,
-                                        amount = result.amount,
-                                        merchant = result.merchant,
-                                        paymentType = "CARD",
-                                        cardCompany = result.cardCompany,
-                                        installmentType = result.installmentType,
-                                        installmentMonths = result.installmentMonths,
-                                        createdAtStr = result.createdAtStr
-                                    )
-                                    parsedCount++
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                logBuilder.append("Error querying SMS: ").append(e.message ?: "").append("\n")
-            }
-
-            // -------------------------------------------------------------
-            // [우선순위 4] MMS 수신함 독립 조회 (content://mms)
-            // -------------------------------------------------------------
-            logBuilder.append("\n--- 4. Querying MMS (content://mms) ---\n")
+            // 2. MMS 수신함 독립 조회
+            logBuilder.append("\n--- 2. Querying MMS (content://mms) ---\n")
             try {
                 val mmsUri = Uri.parse("content://mms")
                 val mmsCursor = contentResolver.query(
@@ -281,11 +208,9 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                                 scannedCount++
 
                                 val fallbackTime = if (mmsTime > 0) mmsTime else System.currentTimeMillis()
-                                val result = FinancialTextParser.parse(body, fallbackTime)
+                                val result = FinancialTextParser.parse(body, fallbackTime, "SMS")
                                 if (result.isPayment) {
-                                    val matchDate = targetDateStr.isBlank() || targetDateStr == "ALL" ||
-                                            (monthStartDateStr.isNotBlank() && result.dateStr >= monthStartDateStr) ||
-                                            result.dateStr == targetDateStr
+                                    val matchDate = result.dateStr >= monthStartDateStr
 
                                     logBuilder.append("[MMS Match Found] Date: ").append(result.dateStr)
                                         .append(" | Card: ").append(result.cardCompany)
@@ -315,12 +240,154 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                 logBuilder.append("Error querying MMS: ").append(e.message ?: "").append("\n")
             }
 
-            val totalCount = parsedCount + pushCount
-            logBuilder.append("\nTotal Parsed Card Transactions: ").append(totalCount.toString()).append("\n")
+            // 3. SMS 수신함 독립 조회 (content://sms/inbox)
+            logBuilder.append("\n--- 3. Querying SMS Inbox (content://sms/inbox) ---\n")
+            try {
+                val smsUri = Uri.parse("content://sms/inbox")
+                val smsCursor = contentResolver.query(
+                    smsUri,
+                    arrayOf("body", "date"),
+                    null,
+                    null,
+                    "date DESC LIMIT 200"
+                )
+
+                if (smsCursor != null) {
+                    logBuilder.append("SMS row count: ").append(smsCursor.count.toString()).append("\n")
+                    smsCursor.use { cursor ->
+                        val bodyIndex = cursor.getColumnIndex("body")
+                        val dateIndex = cursor.getColumnIndex("date")
+
+                        while (cursor.moveToNext()) {
+                            val body = if (bodyIndex != -1) cursor.getString(bodyIndex) ?: "" else ""
+                            var smsTime = if (dateIndex != -1) cursor.getLong(dateIndex) else 0L
+
+                            if (body.isBlank()) continue
+                            if (processedBodies.contains(body)) continue
+                            processedBodies.add(body)
+                            scannedCount++
+
+                            if (smsTime in 1..9999999999L) {
+                                smsTime *= 1000L
+                            }
+
+                            val fallbackTime = if (smsTime > 0) smsTime else System.currentTimeMillis()
+                            val result = FinancialTextParser.parse(body, fallbackTime, "SMS")
+
+                            if (result.isPayment) {
+                                val matchDate = result.dateStr >= monthStartDateStr
+
+                                logBuilder.append("[SMS Match Found] Date: ").append(result.dateStr)
+                                    .append(" | Card: ").append(result.cardCompany)
+                                    .append(" | Amount: ").append(result.amount.toString())
+                                    .append(" | Merchant: ").append(result.merchant)
+                                    .append(" | DateFilterMatch: ").append(matchDate.toString()).append("\n")
+
+                                if (matchDate) {
+                                    FinancialParserModule.emitPaymentEvent(
+                                        dateStr = result.dateStr,
+                                        amount = result.amount,
+                                        merchant = result.merchant,
+                                        paymentType = "CARD",
+                                        cardCompany = result.cardCompany,
+                                        installmentType = result.installmentType,
+                                        installmentMonths = result.installmentMonths,
+                                        createdAtStr = result.createdAtStr
+                                    )
+                                    parsedCount++
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                logBuilder.append("Error querying SMS: ").append(e.message ?: "").append("\n")
+            }
+
+            // 4. 삼성 기본 '메세지' 어플 대화 저장소 조회
+            val conversationUris = listOf(
+                Pair("content://mms-sms/complete-conversations", Uri.parse("content://mms-sms/complete-conversations")),
+                Pair("content://mms-sms/conversations", Uri.parse("content://mms-sms/conversations"))
+            )
+
+            for (pair in conversationUris) {
+                val uriName = pair.first
+                val uri = pair.second
+
+                logBuilder.append("\n--- 4. Querying Messages App Storage (").append(uriName).append(") ---\n")
+                try {
+                    val cursor = contentResolver.query(
+                        uri,
+                        arrayOf("body", "date"),
+                        null,
+                        null,
+                        "date DESC LIMIT 200"
+                    )
+
+                    if (cursor == null) {
+                        logBuilder.append("Cursor is NULL for ").append(uriName).append("\n")
+                        continue
+                    }
+
+                    logBuilder.append("Conversation row count: ").append(cursor.count.toString()).append("\n")
+                    cursor.use { c ->
+                        val bodyIndex = c.getColumnIndex("body")
+                        val dateIndex = c.getColumnIndex("date")
+
+                        while (c.moveToNext()) {
+                            val body = if (bodyIndex != -1) c.getString(bodyIndex) ?: "" else ""
+                            var msgTime = if (dateIndex != -1) c.getLong(dateIndex) else 0L
+
+                            if (body.isBlank()) continue
+                            if (processedBodies.contains(body)) continue
+                            processedBodies.add(body)
+                            scannedCount++
+
+                            if (msgTime in 1..9999999999L) {
+                                msgTime *= 1000L
+                            }
+
+                            val fallbackTime = if (msgTime > 0) msgTime else System.currentTimeMillis()
+                            val result = FinancialTextParser.parse(body, fallbackTime, "SMS")
+
+                            if (result.isPayment) {
+                                val matchDate = result.dateStr >= monthStartDateStr
+
+                                logBuilder.append("[Conv Match Found] Date: ").append(result.dateStr)
+                                    .append(" | Card: ").append(result.cardCompany)
+                                    .append(" | Amount: ").append(result.amount.toString())
+                                    .append(" | Merchant: ").append(result.merchant)
+                                    .append(" | DateFilterMatch: ").append(matchDate.toString()).append("\n")
+
+                                if (matchDate) {
+                                    FinancialParserModule.emitPaymentEvent(
+                                        dateStr = result.dateStr,
+                                        amount = result.amount,
+                                        merchant = result.merchant,
+                                        paymentType = "CARD",
+                                        cardCompany = result.cardCompany,
+                                        installmentType = result.installmentType,
+                                        installmentMonths = result.installmentMonths,
+                                        createdAtStr = result.createdAtStr
+                                    )
+                                    parsedCount++
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    logBuilder.append("Error querying ").append(uriName).append(": ").append(e.message ?: "").append("\n")
+                }
+            }
+
+            // 푸시 알림 히스토리 분석
+            val pushCount = AppNotificationListener.syncPushHistoryForDate(targetDateStr)
+            logBuilder.append("\nPush Notification Sync Count: ").append(pushCount.toString()).append("\n")
+            logBuilder.append("Total Parsed Card Transactions: ").append((parsedCount + pushCount).toString()).append("\n")
             logBuilder.append("=========================================\n")
 
             val resultMap: WritableMap = Arguments.createMap().apply {
-                putInt("count", totalCount)
+                putInt("count", parsedCount + pushCount)
                 putInt("scannedCount", scannedCount)
                 putString("debugLog", logBuilder.toString())
             }

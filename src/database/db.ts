@@ -74,20 +74,22 @@ export const initDatabase = (): void => {
     );
   `);
 
-  // 파싱 예외 키워드 동적 관리 테이블
+  // 파싱 예외 키워드 동적 관리 테이블 (적용 영역 PUSH, SMS 구분)
   db.execute(`
     CREATE TABLE IF NOT EXISTS parse_exceptions (
       id TEXT PRIMARY KEY NOT NULL,
       keyword TEXT UNIQUE NOT NULL,
+      apply_push BOOLEAN DEFAULT 1,
+      apply_sms BOOLEAN DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
   // 초기 예외 키워드 시드 세팅 ('광고', 'q.samsungcard.com', '네이버페이')
   try {
-    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword) VALUES ('1', '광고');`);
-    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword) VALUES ('2', 'q.samsungcard.com');`);
-    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword) VALUES ('3', '네이버페이');`);
+    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('1', '광고', 1, 1);`);
+    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('2', 'q.samsungcard.com', 1, 1);`);
+    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('3', '네이버페이', 1, 1);`);
   } catch (e) {}
 
   // 기존 설치 기기 컬럼 마이그레이션
@@ -113,5 +115,13 @@ export const initDatabase = (): void => {
 
   try {
     db.execute('ALTER TABLE recurring_rules ADD COLUMN days_of_week TEXT;');
+  } catch (e) {}
+
+  try {
+    db.execute('ALTER TABLE parse_exceptions ADD COLUMN apply_push BOOLEAN DEFAULT 1;');
+  } catch (e) {}
+
+  try {
+    db.execute('ALTER TABLE parse_exceptions ADD COLUMN apply_sms BOOLEAN DEFAULT 1;');
   } catch (e) {}
 };

@@ -7,7 +7,6 @@ import {
   FlatList,
   StyleSheet,
   Alert,
-  NativeModules,
 } from 'react-native';
 import { parseExceptionDao, ParseException } from '../database/parseExceptionDao';
 
@@ -20,6 +19,8 @@ export const ParseExceptionsScreen: React.FC<ParseExceptionsScreenProps> = ({
 }) => {
   const [exceptions, setExceptions] = useState<ParseException[]>([]);
   const [newKeyword, setNewKeyword] = useState('');
+  const [applyPush, setApplyPush] = useState(true);
+  const [applySms, setApplySms] = useState(true);
 
   const loadExceptions = useCallback(() => {
     const list = parseExceptionDao.getAllExceptions();
@@ -37,14 +38,34 @@ export const ParseExceptionsScreen: React.FC<ParseExceptionsScreenProps> = ({
       return;
     }
 
-    const success = parseExceptionDao.insertException(trimmed);
+    if (!applyPush && !applySms) {
+      Alert.alert('알림', 'APP PUSH 또는 문자 중 최소 하나 이상의 영역을 체크해 주세요.');
+      return;
+    }
+
+    const success = parseExceptionDao.insertException(trimmed, applyPush, applySms);
     if (success) {
       setNewKeyword('');
+      setApplyPush(true);
+      setApplySms(true);
       loadExceptions();
       Alert.alert('성공', `'${trimmed}' 문구가 파싱 예외 단어로 등록되었습니다.`);
     } else {
       Alert.alert('알림', '이미 등록된 예외 단어이거나 추가 중 오류가 발생했습니다.');
     }
+  };
+
+  const handleToggleArea = (item: ParseException, target: 'push' | 'sms') => {
+    const nextPush = target === 'push' ? !item.applyPush : item.applyPush;
+    const nextSms = target === 'sms' ? !item.applySms : item.applySms;
+
+    if (!nextPush && !nextSms) {
+      Alert.alert('알림', 'APP PUSH 또는 문자 중 최소 하나 이상의 영역을 체크해야 합니다.');
+      return;
+    }
+
+    parseExceptionDao.updateException(item.id, item.keyword, nextPush, nextSms);
+    loadExceptions();
   };
 
   const handleDeleteKeyword = (id: string, keyword: string) => {
@@ -63,7 +84,33 @@ export const ParseExceptionsScreen: React.FC<ParseExceptionsScreenProps> = ({
 
   const renderItem = ({ item }: { item: ParseException }) => (
     <View style={styles.card}>
-      <Text style={styles.keywordText}>🚫 {item.keyword}</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.keywordText}>🚫 {item.keyword}</Text>
+        <View style={styles.chipRow}>
+          <TouchableOpacity
+            style={[styles.badgeChip, item.applyPush && styles.selectedBadgeChip]}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={() => handleToggleArea(item, 'push')}
+          >
+            <Text style={[styles.badgeChipText, item.applyPush && styles.selectedBadgeChipText]}>
+              {item.applyPush ? '✓ APP PUSH' : '☐ APP PUSH'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.badgeChip, item.applySms && styles.selectedBadgeChip]}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={() => handleToggleArea(item, 'sms')}
+          >
+            <Text style={[styles.badgeChipText, item.applySms && styles.selectedBadgeChipText]}>
+              {item.applySms ? '✓ 문자(RCS/SMS/MMS)' : '☐ 문자'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       <TouchableOpacity
         style={styles.deleteBtn}
         activeOpacity={0.7}
@@ -93,27 +140,55 @@ export const ParseExceptionsScreen: React.FC<ParseExceptionsScreenProps> = ({
 
       <View style={styles.content}>
         <Text style={styles.noticeText}>
-          이곳에 등록된 단어가 포함된 RCS, SMS, MMS 및 앱 푸시 알림은 **결제 가계부 파싱에서 자동으로 제외** 처리됩니다.
+          이곳에 등록된 단어가 포함된 메시지는 **체크된 영역(APP PUSH 또는 문자)에서 가계부 파싱이 예외 처리**됩니다. (둘 중 최소 하나 필수 선택)
         </Text>
 
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.input}
-            placeholder="예: 광고, 네이버페이, q.samsungcard.com"
-            value={newKeyword}
-            onChangeText={setNewKeyword}
-            autoCapitalize="none"
-            autoCorrect={false}
-            disableFullscreenUI={true}
-          />
-          <TouchableOpacity
-            style={styles.addBtn}
-            activeOpacity={0.7}
-            delayPressIn={0}
-            onPress={handleAddKeyword}
-          >
-            <Text style={styles.addBtnText}>+ 등록</Text>
-          </TouchableOpacity>
+        <View style={styles.inputBox}>
+          <View style={styles.inputRow}>
+            <TextInput
+              style={styles.input}
+              placeholder="예: 광고, 네이버페이, q.samsungcard.com"
+              value={newKeyword}
+              onChangeText={setNewKeyword}
+              autoCapitalize="none"
+              autoCorrect={false}
+              disableFullscreenUI={true}
+            />
+            <TouchableOpacity
+              style={styles.addBtn}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={handleAddKeyword}
+            >
+              <Text style={styles.addBtnText}>+ 등록</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* 적용 영역 체크박스 */}
+          <Text style={styles.checkboxLabel}>예외 적용 영역 선택 (필수):</Text>
+          <View style={styles.checkboxRow}>
+            <TouchableOpacity
+              style={[styles.checkboxChip, applyPush && styles.selectedCheckboxChip]}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={() => setApplyPush(!applyPush)}
+            >
+              <Text style={[styles.checkboxChipText, applyPush && styles.selectedCheckboxChipText]}>
+                {applyPush ? '☑ APP PUSH' : '☐ APP PUSH'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.checkboxChip, applySms && styles.selectedCheckboxChip]}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={() => setApplySms(!applySms)}
+            >
+              <Text style={[styles.checkboxChipText, applySms && styles.selectedCheckboxChipText]}>
+                {applySms ? '☑ 문자 (RCS, SMS, MMS)' : '☐ 문자 (RCS, SMS, MMS)'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <FlatList
@@ -166,22 +241,30 @@ const styles = StyleSheet.create({
   noticeText: {
     fontSize: 12,
     color: '#616161',
-    marginBottom: 14,
+    marginBottom: 12,
     lineHeight: 18,
+  },
+  inputBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
   },
   inputRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 10,
   },
   input: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FAFAFA',
     borderWidth: 1,
     borderColor: '#E0E0E0',
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     fontSize: 14,
     color: '#212121',
   },
@@ -196,6 +279,38 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  checkboxLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#424242',
+    marginBottom: 6,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  checkboxChip: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    backgroundColor: '#F5F5F5',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    alignItems: 'center',
+  },
+  selectedCheckboxChip: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#2196F3',
+  },
+  checkboxChipText: {
+    fontSize: 12,
+    color: '#616161',
+  },
+  selectedCheckboxChipText: {
+    color: '#1565C0',
+    fontWeight: 'bold',
   },
   card: {
     flexDirection: 'row',
@@ -212,6 +327,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     color: '#212121',
+    marginBottom: 6,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  badgeChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    backgroundColor: '#EEEEEE',
+  },
+  selectedBadgeChip: {
+    backgroundColor: '#E8F5E9',
+  },
+  badgeChipText: {
+    fontSize: 11,
+    color: '#757575',
+  },
+  selectedBadgeChipText: {
+    color: '#2E7D32',
+    fontWeight: 'bold',
   },
   deleteBtn: {
     backgroundColor: '#FFEBEE',

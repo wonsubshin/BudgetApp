@@ -19,19 +19,35 @@ data class ParsedPaymentResult(
     val installmentMonths: Int
 )
 
+data class DynamicExceptionRule(
+    val keyword: String,
+    val applyPush: Boolean,
+    val applySms: Boolean
+)
+
 object FinancialTextParser {
 
-    private val dynamicExceptions = mutableSetOf("광고", "q.samsungcard.com", "네이버페이", "Naver Pay")
+    private val dynamicExceptions = mutableListOf<DynamicExceptionRule>(
+        DynamicExceptionRule("광고", applyPush = true, applySms = true),
+        DynamicExceptionRule("q.samsungcard.com", applyPush = true, applySms = true),
+        DynamicExceptionRule("네이버페이", applyPush = true, applySms = true)
+    )
 
     @JvmStatic
-    fun setDynamicExceptions(keywords: List<String>) {
+    fun setDynamicExceptionRules(rules: List<DynamicExceptionRule>) {
         synchronized(dynamicExceptions) {
             dynamicExceptions.clear()
-            dynamicExceptions.addAll(keywords.filter { it.isNotBlank() })
-            // 기본 예외 키워드 안전 보장
-            dynamicExceptions.add("광고")
-            dynamicExceptions.add("q.samsungcard.com")
-            dynamicExceptions.add("네이버페이")
+            dynamicExceptions.addAll(rules.filter { it.keyword.isNotBlank() })
+            // 기본 예외 키워드 보장
+            if (dynamicExceptions.none { it.keyword == "광고" }) {
+                dynamicExceptions.add(DynamicExceptionRule("광고", applyPush = true, applySms = true))
+            }
+            if (dynamicExceptions.none { it.keyword == "q.samsungcard.com" }) {
+                dynamicExceptions.add(DynamicExceptionRule("q.samsungcard.com", applyPush = true, applySms = true))
+            }
+            if (dynamicExceptions.none { it.keyword == "네이버페이" }) {
+                dynamicExceptions.add(DynamicExceptionRule("네이버페이", applyPush = true, applySms = true))
+            }
         }
     }
 
@@ -77,7 +93,11 @@ object FinancialTextParser {
         }
     }
 
-    fun parse(rawBody: String, fallbackTimeMillis: Long = System.currentTimeMillis()): ParsedPaymentResult {
+    fun parse(
+        rawBody: String,
+        fallbackTimeMillis: Long = System.currentTimeMillis(),
+        sourceType: String = "SMS"
+    ): ParsedPaymentResult {
         // 삼성 RCS JSON 포맷인 경우 TextView 텍스트 영역 추출
         val bodyToParse = extractTextFromRcsJson(rawBody)
 
@@ -85,10 +105,14 @@ object FinancialTextParser {
             return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
         }
 
-        // 0. 동적으로 등록된 예외 문구(광고, q.samsungcard.com, 네이버페이 등)가 포함된 메시지는 파싱에서 즉시 제외
+        // 0. 동적으로 등록된 영역별 예외 문구가 포함된 메시지는 파싱에서 즉시 제외
+        val sourceUpper = sourceType.uppercase(Locale.getDefault())
         synchronized(dynamicExceptions) {
-            for (ex in dynamicExceptions) {
-                if (bodyToParse.contains(ex)) {
+            for (rule in dynamicExceptions) {
+                if (sourceUpper == "PUSH" && rule.applyPush && bodyToParse.contains(rule.keyword)) {
+                    return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
+                }
+                if (sourceUpper != "PUSH" && rule.applySms && bodyToParse.contains(rule.keyword)) {
                     return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
                 }
             }

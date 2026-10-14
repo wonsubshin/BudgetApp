@@ -3,6 +3,8 @@ import { getDb } from './db';
 export interface ParseException {
   id: string;
   keyword: string;
+  applyPush: boolean;
+  applySms: boolean;
   createdAt?: string;
 }
 
@@ -14,22 +16,35 @@ export const parseExceptionDao = {
     return rows.map((r: any) => ({
       id: r.id,
       keyword: r.keyword,
+      applyPush: r.apply_push === undefined || r.apply_push === null ? true : Boolean(r.apply_push),
+      applySms: r.apply_sms === undefined || r.apply_sms === null ? true : Boolean(r.apply_sms),
       createdAt: r.created_at,
     }));
   },
 
-  getAllExceptionKeywords(): string[] {
-    return this.getAllExceptions().map((e) => e.keyword);
-  },
-
-  insertException(keyword: string): boolean {
+  insertException(keyword: string, applyPush: boolean, applySms: boolean): boolean {
     const db = getDb();
     const trimmed = keyword.trim();
     if (!trimmed) return false;
     try {
       db.execute(
-        'INSERT OR IGNORE INTO parse_exceptions (id, keyword) VALUES (?, ?);',
-        [String(Date.now()), trimmed]
+        'INSERT OR REPLACE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES (?, ?, ?, ?);',
+        [String(Date.now()), trimmed, applyPush ? 1 : 0, applySms ? 1 : 0]
+      );
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  updateException(id: string, keyword: string, applyPush: boolean, applySms: boolean): boolean {
+    const db = getDb();
+    const trimmed = keyword.trim();
+    if (!trimmed) return false;
+    try {
+      db.execute(
+        'UPDATE parse_exceptions SET keyword = ?, apply_push = ?, apply_sms = ? WHERE id = ?;',
+        [trimmed, applyPush ? 1 : 0, applySms ? 1 : 0, id]
       );
       return true;
     } catch (e) {
