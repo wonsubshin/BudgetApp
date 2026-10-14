@@ -8,9 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   NativeModules,
-  Clipboard,
-  Alert,
-  ScrollView,
+  Pressable,
 } from 'react-native';
 import dayjs from 'dayjs';
 
@@ -38,73 +36,48 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
   const [messages, setMessages] = useState<SmsMessageItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [debugLogText, setDebugLogText] = useState('');
-  const [showLogView, setShowLogView] = useState(false);
+
+  // ROW 클릭 시 메시지 상세 POPUP 모달 상태
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [selectedMsg, setSelectedMsg] = useState<SmsMessageItem | null>(null);
 
   const pageSize = 50; // 한 화면에 50건씩 페이징 처리
 
   useEffect(() => {
     if (visible) {
       setCurrentPage(1);
-      setShowLogView(false);
       loadInboxMessages();
     }
   }, [visible]);
 
   const loadInboxMessages = async () => {
     setIsLoading(true);
-    let logCollector = `=== BudgetApp SMS Sync Diagnostic Log (${dayjs().format('YYYY-MM-DD HH:mm:ss')}) ===\n`;
-    logCollector += `Native Module Present: ${Boolean(SmsHistoryParserModule)}\n`;
-
     try {
-      // 1. 진단 로그 수집 실행
-      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.syncSmsHistoryWithLog === 'function') {
-        try {
-          const syncRes = await SmsHistoryParserModule.syncSmsHistoryWithLog('ALL');
-          logCollector += `\n--- Native Sync Log Output ---\n${syncRes?.debugLog || '(로그 없음)'}\n`;
-        } catch (syncErr: any) {
-          logCollector += `\n⚠️ syncSmsHistoryWithLog Error: ${syncErr?.message || syncErr}\n`;
-        }
-      }
-
-      // 2. 수신함 메시지 리스트 수집 실행
       if (SmsHistoryParserModule && typeof SmsHistoryParserModule.getInboxMessagesForInspection === 'function') {
-        try {
-          const rawList: any[] = await SmsHistoryParserModule.getInboxMessagesForInspection();
-          logCollector += `\nGetInboxMessages Count: ${rawList ? rawList.length : 0}\n`;
+        const rawList: any[] = await SmsHistoryParserModule.getInboxMessagesForInspection();
 
-          const parsedItems: SmsMessageItem[] = (rawList || []).map((item, idx) => ({
-            id: item.id || `msg_${idx}_${Date.now()}`,
-            receivedTime: item.receivedTime || dayjs().format('YYYY-MM-DD HH:mm:ss'),
-            body: item.body || '(문자 내용)',
-            isTarget: Boolean(item.isTarget),
-            cardCompany: item.cardCompany || '카드',
-            amount: item.amount || 0,
-            merchant: item.merchant || '사용처',
-          }));
+        const parsedItems: SmsMessageItem[] = (rawList || []).map((item, idx) => ({
+          id: item.id || `msg_${idx}_${Date.now()}`,
+          receivedTime: item.receivedTime || dayjs().format('YYYY-MM-DD HH:mm:ss'),
+          body: item.body || '(문자 내용)',
+          isTarget: Boolean(item.isTarget),
+          cardCompany: item.cardCompany || '카드',
+          amount: item.amount || 0,
+          merchant: item.merchant || '사용처',
+        }));
 
-          setMessages(parsedItems);
-        } catch (inspectErr: any) {
-          logCollector += `\n⚠️ getInboxMessagesForInspection Error: ${inspectErr?.message || inspectErr}\n`;
-        }
-      } else {
-        logCollector += `\n⚠️ getInboxMessagesForInspection Method not found on NativeModule.\n`;
+        setMessages(parsedItems);
       }
-    } catch (e: any) {
-      logCollector += `\n⚠️ General Error: ${e?.message || e}\n`;
+    } catch (e) {
+      // Ignore
     } finally {
       setIsLoading(false);
-      setDebugLogText(logCollector);
     }
   };
 
-  const handleCopyDebugLog = () => {
-    if (!debugLogText) {
-      Alert.alert('알림', '복사할 디버그 로그가 존재하지 않습니다.');
-      return;
-    }
-    Clipboard.setString(debugLogText);
-    Alert.alert('복사 완료 📋', '디버그 진단 로그가 클립보드에 복사되었습니다! 채팅창에 붙여넣어 전달해 주세요.');
+  const handleSelectRow = (item: SmsMessageItem) => {
+    setSelectedMsg(item);
+    setDetailModalVisible(true);
   };
 
   const totalPages = Math.ceil(messages.length / pageSize) || 1;
@@ -116,20 +89,23 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
   const renderHeader = () => (
     <View style={styles.tableHeader}>
       <Text style={[styles.th, { flex: 1.2 }]}>수신 시각</Text>
-      <Text style={[styles.th, { flex: 2.2 }]}>문자 / RCS 내용</Text>
+      <Text style={[styles.th, { flex: 2.2 }]}>문자 / RCS 내용 (터치하여 상세)</Text>
       <Text style={[styles.th, { flex: 1.1 }]}>파싱 대상</Text>
     </View>
   );
 
   const renderItem = ({ item }: { item: SmsMessageItem }) => {
     return (
-      <View style={styles.tableRow}>
+      <Pressable
+        style={({ pressed }) => [styles.tableRow, pressed && { backgroundColor: '#E3F2FD' }]}
+        onPress={() => handleSelectRow(item)}
+      >
         <Text style={[styles.tdTime, { flex: 1.2 }]}>{item.receivedTime}</Text>
         <View style={{ flex: 2.2 }}>
           <Text style={styles.tdBody} numberOfLines={3}>
             {item.body}
           </Text>
-          {item.isTarget && item.amount !== undefined && (
+          {item.isTarget && item.amount !== undefined && item.amount > 0 && (
             <Text style={styles.tdParsedDetail}>
               💳 {item.cardCompany} | {item.merchant} | {item.amount.toLocaleString()}원
             </Text>
@@ -142,7 +118,7 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
             </Text>
           </View>
         </View>
-      </View>
+      </Pressable>
     );
   };
 
@@ -157,37 +133,14 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* 디버그 로그 복사 및 로그 뷰 토글 버튼 라인 */}
-          <View style={styles.actionBtnRow}>
-            <TouchableOpacity
-              style={styles.copyLogBtn}
-              activeOpacity={0.7}
-              delayPressIn={0}
-              onPress={handleCopyDebugLog}
-            >
-              <Text style={styles.copyLogBtnText}>📋 디버그 로그 복사하기</Text>
-            </TouchableOpacity>
+          <Text style={styles.noticeText}>
+            수신함 문자 중 카드 결제 조건에 부합하는 문자는 **[⭕ 파싱 대상]**으로 자동 수록되고, 일반/광고/예외 문자는 **[❌ 비대상]**으로 분류됩니다. (행 터치 시 상세 원문 조회)
+          </Text>
 
-            <TouchableOpacity
-              style={styles.toggleLogBtn}
-              activeOpacity={0.7}
-              delayPressIn={0}
-              onPress={() => setShowLogView(!showLogView)}
-            >
-              <Text style={styles.toggleLogBtnText}>
-                {showLogView ? '📊 결과 목록 보기' : '🔍 진단 로그 텍스트 보기'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {showLogView ? (
-            <ScrollView style={styles.logScrollView}>
-              <Text style={styles.logText}>{debugLogText}</Text>
-            </ScrollView>
-          ) : isLoading ? (
+          {isLoading ? (
             <View style={styles.loadingBox}>
               <ActivityIndicator size="large" color="#2196F3" />
-              <Text style={styles.loadingText}>수신함 결제 문자를 스캔 진단 중입니다...</Text>
+              <Text style={styles.loadingText}>수신함 결제 문자를 스캔 중입니다...</Text>
             </View>
           ) : (
             <View style={{ flex: 1 }}>
@@ -200,9 +153,6 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
                 ListEmptyComponent={
                   <View style={styles.emptyBox}>
                     <Text style={styles.emptyText}>동기화 스캔된 결제 문자 내역이 없습니다.</Text>
-                    <Text style={styles.emptySubText}>
-                      상단의 [📋 디버그 로그 복사하기] 버튼을 눌러 로그를 전달해 주세요.
-                    </Text>
                   </View>
                 }
               />
@@ -241,6 +191,74 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* 행(ROW) 터치 시 문자/RCS 상세 POPUP 모달 */}
+      <Modal
+        visible={detailModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDetailModalVisible(false)}
+      >
+        <View style={styles.detailOverlay}>
+          <View style={styles.detailContainer}>
+            <View style={styles.headerRow}>
+              <Text style={styles.detailTitle}>📱 수신된 결제 문자 / RCS 원문 상세</Text>
+              <TouchableOpacity onPress={() => setDetailModalVisible(false)}>
+                <Text style={styles.closeBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {selectedMsg && (
+              <View style={styles.detailContent}>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>수신 시각:</Text>
+                  <Text style={styles.detailVal}>{selectedMsg.receivedTime}</Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>파싱 대상 여부:</Text>
+                  <Text style={[styles.detailVal, selectedMsg.isTarget ? { color: '#2E7D32', fontWeight: 'bold' } : { color: '#C62828' }]}>
+                    {selectedMsg.isTarget ? '⭕ 파싱 대상 (가계부 자동 수록)' : '❌ 비대상 (파싱 제외)'}
+                  </Text>
+                </View>
+
+                {selectedMsg.isTarget && (
+                  <>
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>카드사 / 결제수단:</Text>
+                      <Text style={styles.detailVal}>{selectedMsg.cardCompany || '카드'}</Text>
+                    </View>
+
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>가맹점 / 사용처:</Text>
+                      <Text style={styles.detailVal}>{selectedMsg.merchant || '사용처'}</Text>
+                    </View>
+
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>결제 금액:</Text>
+                      <Text style={[styles.detailVal, { color: '#D32F2F', fontWeight: 'bold' }]}>
+                        {selectedMsg.amount ? `${selectedMsg.amount.toLocaleString()} 원` : '-'}
+                      </Text>
+                    </View>
+                  </>
+                )}
+
+                <Text style={styles.rawTextHeader}>📩 문자 / RCS 원문 메시지 내용:</Text>
+                <View style={styles.rawTextContainer}>
+                  <Text style={styles.rawBodyText}>{selectedMsg.body}</Text>
+                </View>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.detailCloseBtn}
+              onPress={() => setDetailModalVisible(false)}
+            >
+              <Text style={styles.detailCloseBtnText}>닫기</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 };
@@ -278,50 +296,13 @@ const styles = StyleSheet.create({
     color: '#757575',
     fontWeight: 'bold',
   },
-  actionBtnRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
-  copyLogBtn: {
-    flex: 1,
-    backgroundColor: '#E3F2FD',
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#90CAF9',
-  },
-  copyLogBtnText: {
-    fontSize: 12,
-    color: '#1565C0',
-    fontWeight: 'bold',
-  },
-  toggleLogBtn: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-    paddingVertical: 8,
-    borderRadius: 6,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  toggleLogBtnText: {
-    fontSize: 12,
-    color: '#424242',
-    fontWeight: '600',
-  },
-  logScrollView: {
-    flex: 1,
-    backgroundColor: '#1E1E1E',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 8,
-  },
-  logText: {
-    color: '#4CAF50',
+  noticeText: {
     fontSize: 11,
-    fontFamily: 'monospace',
+    color: '#616161',
+    backgroundColor: '#E3F2FD',
+    padding: 10,
+    borderRadius: 6,
+    marginBottom: 10,
     lineHeight: 16,
   },
   loadingBox: {
@@ -436,11 +417,6 @@ const styles = StyleSheet.create({
     color: '#9E9E9E',
     fontWeight: 'bold',
   },
-  emptySubText: {
-    fontSize: 11,
-    color: '#757575',
-    marginTop: 6,
-  },
   bottomCloseBtn: {
     marginTop: 10,
     backgroundColor: '#2196F3',
@@ -449,6 +425,74 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   bottomCloseBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  /* 상세 POPUP 모달 스타일 */
+  detailOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  detailContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 18,
+    maxHeight: '85%',
+  },
+  detailTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#212121',
+  },
+  detailContent: {
+    marginTop: 12,
+    gap: 8,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5F5F5',
+  },
+  detailLabel: {
+    fontSize: 13,
+    color: '#616161',
+  },
+  detailVal: {
+    fontSize: 13,
+    color: '#212121',
+  },
+  rawTextHeader: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#1565C0',
+    marginTop: 10,
+  },
+  rawTextContainer: {
+    backgroundColor: '#263238',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 4,
+    maxHeight: 200,
+  },
+  rawBodyText: {
+    color: '#80CBC4',
+    fontSize: 12,
+    fontFamily: 'monospace',
+    lineHeight: 18,
+  },
+  detailCloseBtn: {
+    marginTop: 16,
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  detailCloseBtnText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 14,
