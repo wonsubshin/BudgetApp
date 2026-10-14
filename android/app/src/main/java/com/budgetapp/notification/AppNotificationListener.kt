@@ -109,7 +109,9 @@ class AppNotificationListener : NotificationListenerService() {
             try {
                 FinancialTextParser.loadExceptionsFromDb(listener)
 
+                // NotificationListenerService의 getActiveNotifications()를 통해 현재 스마트폰 상단바에 떠 있는 모든 알림 목록 읽기
                 val activeNotifs = listener.activeNotifications ?: return 0
+
                 val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                 val targetDate = try { sdf.parse(targetDateStr) ?: Date() } catch (e: Exception) { Date() }
 
@@ -129,24 +131,26 @@ class AppNotificationListener : NotificationListenerService() {
 
                 for (sbn in activeNotifs) {
                     val postTime = sbn.postTime
-                    if (targetDateStr == "ALL" || postTime in startTime..endTime) {
-                        val extras = sbn.notification.extras
-                        val title = extras.getCharSequence("android.title")?.toString() ?: ""
-                        val text = extras.getCharSequence("android.text")?.toString() ?: ""
-                        val bigText = extras.getCharSequence("android.bigText")?.toString() ?: ""
-                        val fullContent = "$title\n$text\n$bigText".trim()
+                    val packageName = sbn.packageName ?: ""
+                    val extras = sbn.notification.extras
+                    val title = extras.getCharSequence("android.title")?.toString() ?: ""
+                    val text = extras.getCharSequence("android.text")?.toString() ?: ""
+                    val bigText = extras.getCharSequence("android.bigText")?.toString() ?: ""
+                    val fullContent = "$title\n$text\n$bigText".trim()
 
-                        if (fullContent.isNotBlank()) {
-                            // 활성 푸시 스캔 시에도 DB 원문 저장 실행
-                            listener.saveRawNotification(
-                                sbn.packageName ?: "",
-                                title,
-                                text,
-                                bigText,
-                                fullContent,
-                                postTime
-                            )
+                    if (fullContent.isNotBlank()) {
+                        // 수신함 결제 내역 실시간 동기화 실행 시 무조건 현재 떠 있는 모든 알림 목록을 읽어와 app_notifications_raw 저장소에 빠짐없이 보관
+                        listener.saveRawNotification(
+                            packageName,
+                            title,
+                            text,
+                            bigText,
+                            fullContent,
+                            postTime
+                        )
 
+                        // 파싱 및 결제 이벤트 등록 (날짜 조건 매칭 시)
+                        if (targetDateStr == "ALL" || postTime in startTime..endTime) {
                             val result = FinancialTextParser.parse(fullContent, postTime, "PUSH")
                             if (result.isPayment) {
                                 FinancialParserModule.emitPaymentEvent(
@@ -165,7 +169,7 @@ class AppNotificationListener : NotificationListenerService() {
                     }
                 }
             } catch (e: Exception) {
-                // Ignore
+                android.util.Log.e("AppNotificationListener", "syncPushHistoryForDate error: ${e.message}", e)
             }
             return count
         }
