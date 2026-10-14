@@ -168,4 +168,26 @@ export const transactionDao = {
       createdAt: row.created_at,
     }));
   },
+
+  getAllInstallmentTransactions(): Transaction[] {
+    const db = getDb();
+    const result = db.execute(
+      "SELECT * FROM transactions WHERE category_type = 'EXPENSE' AND installment_type = 'INSTALLMENT' AND installment_months > 1 ORDER BY date ASC;"
+    );
+
+    const rows = result.rows?._array || [];
+    return rows.map((row: any) => ({
+      id: row.id,
+      date: row.date,
+      categoryType: row.category_type,
+      amount: row.amount,
+      merchant: row.merchant,
+      paymentType: row.payment_type,
+      cardCompany: row.card_company || undefined,
+      installmentType: row.installment_type,
+      installmentMonths: row.installment_months,
+      isRecurring: Boolean(row.is_recurring),
+      createdAt: row.created_at,
+    }));
+  },
 };

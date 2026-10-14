@@ -5,7 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import dayjs from 'dayjs';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import { BudgetHeaderBanner } from '../components/calendar/BudgetHeaderBanner';
-import { ViewMode, Transaction } from '../types/budget';
+import { ViewMode } from '../types/budget';
 import {
   getMonthlyBudget,
   getViewMode,
@@ -62,6 +62,7 @@ LocaleConfig.locales['kr'] = {
   dayNames: [
     '일요일',
     '월요일',
+    '화요일',
     '수요일',
     '목요일',
     '금요일',
@@ -159,48 +160,36 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
       }
     });
 
-    // 3. 과거 1년치 할부 결제건을 스캔하여 잔여 할부 계산 및 팝업용 상세 생성
-    const currentMoment = dayjs(`${currentYearMonth}-01`, 'YYYY-MM-DD');
-    const pastYearTxs: Transaction[] = [];
-
-    for (let m = 0; m < 12; m++) {
-      const ym = currentMoment.subtract(m, 'month').format('YYYY-MM');
-      const monthTxs = transactionDao.getTransactionsByMonth(ym);
-      pastYearTxs.push(...monthTxs);
-    }
+    // 3. DB의 모든 할부 결제 내역을 스캔하여 잔여 할부 회차가 남아있는 건만 필터링 (12개월 초과 장기 할부 포함)
+    const allInstallmentTxs = transactionDao.getAllInstallmentTransactions();
+    const currentMoment = dayjs(`${currentYearMonth}-01`, 'YYYY-MM-DD').startOf('month');
 
     const detailList: InstallmentItemDetail[] = [];
     let autoSum = 0;
 
-    pastYearTxs.forEach((tx) => {
-      if (
-        tx.categoryType === 'EXPENSE' &&
-        tx.installmentType === 'INSTALLMENT' &&
-        tx.installmentMonths > 1
-      ) {
-        const txMoment = dayjs(tx.date, 'YYYY-MM-DD').startOf('month');
-        const monthsElapsed = currentMoment.diff(txMoment, 'month');
+    allInstallmentTxs.forEach((tx) => {
+      const txMoment = dayjs(tx.date, 'YYYY-MM-DD').startOf('month');
+      const monthsElapsed = currentMoment.diff(txMoment, 'month');
 
-        // 조회 월 기준 할부 회차가 남아있는 경우
-        if (monthsElapsed >= 0 && monthsElapsed < tx.installmentMonths) {
-          const monthlyAmount = Math.round(tx.amount / tx.installmentMonths);
-          const currentCount = monthsElapsed + 1;
-          const remainingCount = tx.installmentMonths - currentCount;
+      // 조회 월 기준 할부 회차가 종료되지 않고 아직 남아있는 건만 포함 (12개월 초과 장기 할부 포함)
+      if (monthsElapsed >= 0 && monthsElapsed < tx.installmentMonths) {
+        const monthlyAmount = Math.round(tx.amount / tx.installmentMonths);
+        const currentCount = monthsElapsed + 1;
+        const remainingCount = tx.installmentMonths - currentCount;
 
-          autoSum += monthlyAmount;
+        autoSum += monthlyAmount;
 
-          detailList.push({
-            id: tx.id,
-            merchant: tx.merchant,
-            cardCompany: tx.cardCompany || '카드',
-            monthlyAmount,
-            totalPrincipal: tx.amount,
-            installmentMonths: tx.installmentMonths,
-            currentCount,
-            remainingCount,
-            isManualInput: false,
-          });
-        }
+        detailList.push({
+          id: tx.id,
+          merchant: tx.merchant,
+          cardCompany: tx.cardCompany || '카드',
+          monthlyAmount,
+          totalPrincipal: tx.amount,
+          installmentMonths: tx.installmentMonths,
+          currentCount,
+          remainingCount,
+          isManualInput: false,
+        });
       }
     });
 
