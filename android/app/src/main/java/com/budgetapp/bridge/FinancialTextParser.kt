@@ -216,26 +216,33 @@ object FinancialTextParser {
         // 5. 사용처(가맹점) 추출
         var merchant = ""
 
-        // 패턴 A: 날짜/시간 뒤에 오는 단어 (예: "10/13 11:55 주래등")
-        val lineWithTime = lines.find { it.contains("/") && !it.contains("접수") && !it.contains("취소") }
+        // 패턴 A: 날짜/시간이 적힌 줄에서 날짜, 시간, 누적금액, 숫자원 단어를 제외한 단어를 사용처로 추출
+        val lineWithTime = lines.find { it.contains("/") }
         if (lineWithTime != null) {
             val parts = lineWithTime.split("\\s+".toRegex())
-            val candidate = parts.lastOrNull {
-                it.isNotBlank() && !it.contains("/") && !it.contains(":") && !it.contains("원") && !it.contains("누적")
+            val candidate = parts.lastOrNull { p ->
+                val word = p.trim()
+                word.isNotBlank() &&
+                        !word.contains("/") &&
+                        !Pattern.compile("^[0-9]{1,2}:[0-9]{2}$").matcher(word).matches() &&
+                        !Pattern.compile("^[0-9,,-]+원$").matcher(word).matches() &&
+                        !word.contains("누적") &&
+                        !word.contains("일시불") &&
+                        !word.contains("개월")
             }
             if (!candidate.isNullOrBlank()) {
                 merchant = candidate
             }
         }
 
-        // 패턴 B: 자동결제 10/12접수/취소 패턴의 다음 줄 (예: "LGU+ 통신(452325)")
+        // 패턴 B: 자동결제 / 접수 / 승인 / 취소 줄 다음 줄에서 사용처 추출
         if (merchant.isBlank()) {
             for (i in 0 until lines.size) {
                 val l = lines[i]
                 if (l.contains("자동결제") || l.contains("접수") || l.contains("승인") || l.contains("취소")) {
                     if (i + 1 < lines.size) {
                         val nextLine = lines[i + 1]
-                        if (!nextLine.contains("원") && !nextLine.contains("누적") && !nextLine.contains("/")) {
+                        if (!nextLine.contains("원") && !nextLine.contains("누적") && !nextLine.contains("/") && !Pattern.compile("^[0-9]{1,2}:[0-9]{2}$").matcher(nextLine).find()) {
                             merchant = nextLine
                             break
                         }
@@ -244,20 +251,34 @@ object FinancialTextParser {
             }
         }
 
-        // 패턴 C: 일반 단어 추출
+        // 패턴 C: 전체 단어 중 시각(20:55)이나 숫자금액이 아닌 사용처 단어 추출
         if (merchant.isBlank()) {
             val words = bodyToParse.split("\\s+".toRegex())
-            merchant = words.lastOrNull {
-                it.isNotBlank() && !it.contains("원") && !it.contains("승인") && !it.contains("접수") && !it.contains("취소") && !it.contains("누적") && !it.contains("카드")
+            merchant = words.lastOrNull { w ->
+                val word = w.trim()
+                word.isNotBlank() &&
+                        !word.contains("승인") &&
+                        !word.contains("접수") &&
+                        !word.contains("취소") &&
+                        !word.contains("누적") &&
+                        !word.contains("카드") &&
+                        !Pattern.compile("^[0-9]{1,2}:[0-9]{2}$").matcher(word).matches() &&
+                        !Pattern.compile("^[0-9,,-]+원$").matcher(word).matches()
             } ?: "카드 결제"
         }
 
-        // 가맹점 명칭 정제 (예: "LGU+ 통신(452325)" -> "LGU+ 통신")
+        // 가맹점 명칭 정제 (예: "LGU+ 통신(452325)" -> "LGU+ 통신", "제이엔에스(주)원" -> "제이엔에스(주)")
         merchant = merchant.replace("\\([0-9]+\\)".toRegex(), "").trim()
+        if (merchant.endsWith("원") && !merchant.endsWith("만원") && merchant.length > 1) {
+            merchant = merchant.substring(0, merchant.length - 1).trim()
+        }
+
         if (merchant.contains("드렸어요") || merchant.contains("결제금액") || merchant.contains("q.samsungcard.com")) {
             return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
         }
-        if (merchant.isBlank()) merchant = "카드 결제"
+        if (merchant.isBlank() || Pattern.compile("^[0-9]{1,2}:[0-9]{2}$").matcher(merchant).matches()) {
+            merchant = "카드 결제"
+        }
 
         // 6. 결제 취소(승인취소, 결제취소 등)인 경우 금액을 음수(-amount)로 변환하고 사용처에 [취소] 표기
         var finalAmount = amount
