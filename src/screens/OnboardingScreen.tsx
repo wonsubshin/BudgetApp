@@ -70,7 +70,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
     if (Platform.OS === 'android') {
       Alert.alert(
         '🔔 알림 접근 권한 승인 안내',
-        '카드 결제 앱 푸시 알림을 실시간으로 파싱하여 가계부에 자동 반영하려면 [알림 접근 허용] 권한이 필요합니다. 설정 화면으로 이동하시겠습니까?',
+        '카드 결제 앱 푸시 알림을 실시간으로 파싱하여 예산가계부에 자동 반영하려면 [알림 접근 허용] 권한이 필요합니다. 설정 화면으로 이동하시겠습니까?',
         [
           {
             text: '나중에',
@@ -105,9 +105,9 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.title}>가계부 앱에 오신 것을 환영합니다! 👋</Text>
+          <Text style={styles.title}>예산가계부에 오신 것을 환영합니다! 👋</Text>
           <Text style={styles.subtitle}>
-            스탠드얼론 가계부 사용을 위한 기본 정보를 설정해 주세요.
+            스탠드얼론 예산가계부 사용을 위한 기본 정보를 설정해 주세요.
           </Text>
 
           <View style={styles.inputContainer}>

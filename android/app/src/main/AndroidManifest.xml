@@ -48,7 +48,7 @@
       <!-- KakaoPay & Hyundai Card Push Notification Listener Service -->
       <service
         android:name=".notification.AppNotificationListener"
-        android:label="BudgetApp Notification Listener"
+        android:label="예산가계부 알림 리스너"
         android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
         android:exported="true">
         <intent-filter>

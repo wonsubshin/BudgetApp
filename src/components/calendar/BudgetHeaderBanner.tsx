@@ -21,7 +21,7 @@ export const BudgetHeaderBanner: React.FC<BudgetHeaderBannerProps> = ({
   return (
     <View style={styles.container}>
       <Text style={styles.headerTitle}>
-        📅 {nickname ? `${nickname}님의 가계부` : '가계부'}
+        📅 {nickname ? `${nickname}님의 예산가계부` : '예산가계부'}
       </Text>
 
       <View style={styles.topRow}>
