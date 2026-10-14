@@ -50,7 +50,16 @@ function main() {
   console.log(`   JAVA_HOME   : ${env.JAVA_HOME}`);
   console.log(`   ANDROID_HOME: ${env.ANDROID_HOME}`);
 
-  // 3. Gradle 빌드
+  // 3. 서명 충돌(INSTALL_FAILED_UPDATE_INCOMPATIBLE) 방지를 위한 기존 앱 자동 제거
+  if (taskName === 'app:installDebug') {
+    try {
+      execSync('adb uninstall com.budgetapp', { env, stdio: 'ignore' });
+    } catch (e) {
+      // 설치되어 있지 않은 경우 무시
+    }
+  }
+
+  // 4. Gradle 빌드
   const isWindows = process.platform === 'win32';
   const gradlewCmd = isWindows ? 'gradlew.bat' : './gradlew';
   const androidDir = path.resolve(__dirname, '../android');
