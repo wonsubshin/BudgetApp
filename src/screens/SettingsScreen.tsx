@@ -136,20 +136,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // 가계부 전체 데이터 backup_YYYYMMDDhhmmss.txt 파일 백업 생성
-  const handleExportBackupData = () => {
+  // 가계부 전체 데이터 backup_YYYYMMDDhhmmss.txt 파일 백업 생성 다운로드
+  const handleExportBackupData = async () => {
     try {
-      const result = backupService.exportBackupToFile();
+      setIsSyncing(true);
+      const result = await backupService.exportBackupToFile();
+      setIsSyncing(false);
+
       Alert.alert(
-        '📄 백업 파일 생성 완료',
-        `가계부 전체 데이터가 '${result.fileName}' 파일 포맷으로 생성되어 클립보드 복사 및 Download 폴더에 백업 생성되었습니다!\n\n데이터 용량이 커도 텍스트 파일(${result.fileName}) 형태로 안전하게 보관/이동하실 수 있습니다.`
+        '📄 백업 파일 다운로드 완료',
+        `가계부 전체 데이터가 '${result.fileName}' 파일로 스마트폰 [Download] 폴더에 물리적으로 생성 다운로드되었습니다!\n\n(생성 경로: ${result.filePath})\n용량이 커도 텍스트 파일(${result.fileName}) 형태로 안심하고 보관/이동하실 수 있습니다.`
       );
     } catch (e: any) {
+      setIsSyncing(false);
       Alert.alert('백업 실패', e?.message || '백업 파일 생성 중 오류가 발생했습니다.');
     }
   };
 
-  // JSON 백업 데이터 복구 실행
+  // JSON/TXT 백업 데이터 복구 실행
   const handleExecuteRestore = () => {
     if (!restoreJsonInput.trim()) {
       Alert.alert('알림', '복구할 백업 파일(JSON/TXT)의 데이터 내용을 입력하거나 붙여넣어 주세요.');
@@ -296,7 +300,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>📦 백업 파일 다운로드 및 복구</Text>
         <Text style={styles.sectionSub}>
-          가계부 이력 전체를 'backup_YYYYMMDDhhmmss.txt' 파일로 생성하여 다운로드하거나 복구합니다.
+          가계부 이력 전체를 'backup_YYYYMMDDhhmmss.txt' 파일로 생성하여 Download 폴더에 다운로드하거나 복구합니다.
         </Text>
         <View style={styles.row}>
           <TouchableOpacity
@@ -304,8 +308,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             activeOpacity={0.7}
             delayPressIn={0}
             onPress={handleExportBackupData}
+            disabled={isSyncing}
           >
-            <Text style={styles.syncBtnText}>📄 백업 파일 생성</Text>
+            {isSyncing ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.syncBtnText}>📄 백업 파일 다운로드</Text>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity

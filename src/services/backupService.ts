@@ -18,6 +18,8 @@ import { holidayDao } from '../database/holidayDao';
 import { parseExceptionDao } from '../database/parseExceptionDao';
 import { Transaction, RecurringRule, Holiday } from '../types/budget';
 
+const { SmsHistoryParserModule } = NativeModules;
+
 export interface BudgetAppBackupData {
   version: number;
   exportedAt: string;
@@ -87,19 +89,24 @@ export const backupService = {
     return JSON.stringify(backupObj, null, 2);
   },
 
-  exportBackupToFile(): { success: boolean; fileName: string; filePath: string; jsonString: string } {
+  async exportBackupToFile(): Promise<{ success: boolean; fileName: string; filePath: string }> {
     const jsonString = this.generateBackupJson();
     const fileName = `backup_${dayjs().format('YYYYMMDDHHmmss')}.txt`;
 
-    // 백업 텍스트 클립보드 안전 복사 지원
+    // 1. 클립보드 복사 지원
     Clipboard.setString(jsonString);
 
-    return {
-      success: true,
-      fileName,
-      filePath: `Download/${fileName}`,
-      jsonString,
-    };
+    // 2. 안드로이드 물리 스마트폰 Download 공개 디렉토리에 실제 backup_YYYYMMDDhhmmss.txt 파일 저장
+    if (SmsHistoryParserModule && typeof SmsHistoryParserModule.saveBackupFileToDownload === 'function') {
+      try {
+        const savedPath = await SmsHistoryParserModule.saveBackupFileToDownload(jsonString, fileName);
+        return { success: true, fileName, filePath: savedPath };
+      } catch (e) {
+        // Fallback
+      }
+    }
+
+    return { success: true, fileName, filePath: `Download/${fileName}` };
   },
 
   restoreFromBackupJson(jsonString: string): { success: boolean; message: string } {
@@ -118,7 +125,7 @@ export const backupService = {
         if (data.user.viewMode) setViewMode(data.user.viewMode as any);
       }
 
-      // 2. 파싱 예외 단어 먼저 복구
+      // 2. 파싱 예외 단어 먼저 복구 (네이버페이는 applySms가 false이므로 문자는 허용)
       if (Array.isArray(data.parseExceptions)) {
         data.parseExceptions.forEach((ex) => {
           try {
@@ -129,7 +136,7 @@ export const backupService = {
         });
       }
 
-      // 3. 거래 내역 복구 (예외 가맹점 "드렸어요!", "결제금액", "q.samsungcard.com" 자동 제외)
+      // 3. 거래 내역 복구 (applySms가 false인 네이버페이는 차단 없이 안전하게 복구 인서트)
       if (Array.isArray(data.transactions)) {
         data.transactions.forEach((tx) => {
           try {
@@ -169,7 +176,7 @@ export const backupService = {
         });
       }
 
-      // 7. 복구 완료 후 전체 예외 단어 및 무효 키워드 거래 내역 최종 정제 정돈
+      // 7. 복구 완료 후 applySms가 true인 진짜 파싱 예외 단어에 대해서만 정제 삭제 실행 (네이버페이는 보존)
       transactionDao.purgeAllExceptionMatchedTransactions();
 
       return { success: true, message: '백업 데이터가 성공적으로 완벽 복구되었습니다!' };

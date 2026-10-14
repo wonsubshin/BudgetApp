@@ -7,6 +7,8 @@ import {
   StyleSheet,
   Alert,
   Clipboard,
+  Modal,
+  ScrollView,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { appNotificationDao, AppNotificationRaw } from '../database/appNotificationDao';
@@ -19,6 +21,8 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
   onBack,
 }) => {
   const [notifications, setNotifications] = useState<AppNotificationRaw[]>([]);
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState<AppNotificationRaw | null>(null);
 
   const loadNotifications = useCallback(() => {
     const list = appNotificationDao.getRecentNotifications();
@@ -28,6 +32,17 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
   useEffect(() => {
     loadNotifications();
   }, [loadNotifications]);
+
+  const handleOpenDetail = (item: AppNotificationRaw) => {
+    setSelectedNotification(item);
+    setDetailModalVisible(true);
+  };
+
+  const handleCopySingleRaw = () => {
+    if (!selectedNotification) return;
+    Clipboard.setString(selectedNotification.rawContent);
+    Alert.alert('복사 완료 📋', '앱 푸시 원문 내용이 클립보드에 복사되었습니다.');
+  };
 
   const handleCopyDebugLog = () => {
     let logStr = `=== BudgetApp Raw Push Notifications Diagnostic Log (${dayjs().format('YYYY-MM-DD HH:mm:ss')}) ===\n`;
@@ -74,34 +89,42 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
 
   const renderHeader = () => (
     <View style={styles.tableHeader}>
-      <Text style={[styles.th, { flex: 1.2 }]}>수신 시각</Text>
-      <Text style={[styles.th, { flex: 1 }]}>패키지/제목</Text>
-      <Text style={[styles.th, { flex: 2 }]}>원문 내용</Text>
+      <Text style={[styles.th, { flex: 1.1 }]}>수신 시각</Text>
+      <Text style={[styles.th, { flex: 1.1 }]}>패키지/제목</Text>
+      <Text style={[styles.th, { flex: 2.1 }]}>원문 내용 (터치 시 상세)</Text>
       <Text style={[styles.th, { flex: 0.6 }]}>삭제</Text>
     </View>
   );
 
   const renderItem = ({ item }: { item: AppNotificationRaw }) => (
-    <View style={styles.tableRow}>
-      <Text style={[styles.tdTime, { flex: 1.2 }]}>{item.postTime}</Text>
-      <View style={{ flex: 1 }}>
+    <TouchableOpacity
+      style={styles.tableRow}
+      activeOpacity={0.7}
+      delayPressIn={0}
+      onPress={() => handleOpenDetail(item)}
+    >
+      <Text style={[styles.tdTime, { flex: 1.1 }]}>{item.postTime}</Text>
+      <View style={{ flex: 1.1 }}>
         <Text style={styles.tdPkg}>{item.packageName.split('.').pop() || item.packageName}</Text>
         <Text style={styles.tdTitle} numberOfLines={1}>
           {item.title || '(제목 없음)'}
         </Text>
       </View>
-      <Text style={[styles.tdContent, { flex: 2 }]} numberOfLines={3}>
+      <Text style={[styles.tdContent, { flex: 2.1 }]} numberOfLines={3}>
         {item.rawContent}
       </Text>
       <TouchableOpacity
         style={[styles.deleteBtn, { flex: 0.6 }]}
         activeOpacity={0.7}
         delayPressIn={0}
-        onPress={() => handleDelete(item.id)}
+        onPress={(e) => {
+          e.stopPropagation?.();
+          handleDelete(item.id);
+        }}
       >
         <Text style={styles.deleteBtnText}>삭제</Text>
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 
   return (
@@ -158,6 +181,98 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
           </View>
         }
       />
+
+      {/* 앱 푸시 원문 상세 POPUP 모달 */}
+      <Modal
+        visible={detailModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDetailModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalHeaderTitle}>📨 수신된 앱 푸시 원문 상세</Text>
+              <TouchableOpacity
+                onPress={() => setDetailModalVisible(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={styles.modalCloseIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {selectedNotification && (
+              <ScrollView style={styles.modalScrollBody} showsVerticalScrollIndicator={true}>
+                <View style={styles.metaBox}>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>수신 일시</Text>
+                    <Text style={styles.metaValue}>{selectedNotification.postTime}</Text>
+                  </View>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>발신 앱</Text>
+                    <Text style={[styles.metaValue, { color: '#1565C0', fontWeight: 'bold' }]}>
+                      {selectedNotification.packageName}
+                    </Text>
+                  </View>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>알림 제목</Text>
+                    <Text style={[styles.metaValue, { color: '#212121', fontWeight: 'bold' }]}>
+                      {selectedNotification.title || '(제목 없음)'}
+                    </Text>
+                  </View>
+                  {selectedNotification.text ? (
+                    <View style={styles.metaRow}>
+                      <Text style={styles.metaLabel}>기본 본문</Text>
+                      <Text style={styles.metaValue}>{selectedNotification.text}</Text>
+                    </View>
+                  ) : null}
+                  {selectedNotification.bigText && selectedNotification.bigText !== selectedNotification.text ? (
+                    <View style={styles.metaRow}>
+                      <Text style={styles.metaLabel}>펼침 본문</Text>
+                      <Text style={styles.metaValue}>{selectedNotification.bigText}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                <View style={styles.rawSection}>
+                  <View style={styles.rawHeaderRow}>
+                    <Text style={styles.rawSectionTitle}>📄 수신 원문 내용 전체 (FCM / Android)</Text>
+                    <TouchableOpacity
+                      style={styles.copyInlineBtn}
+                      activeOpacity={0.7}
+                      onPress={handleCopySingleRaw}
+                    >
+                      <Text style={styles.copyInlineBtnText}>📋 복사</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.rawBox}>
+                    <Text style={styles.rawContentText} selectable={true}>
+                      {selectedNotification.rawContent}
+                    </Text>
+                  </View>
+                </View>
+              </ScrollView>
+            )}
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={[styles.modalActionBtn, styles.modalCopyBtn]}
+                activeOpacity={0.7}
+                onPress={handleCopySingleRaw}
+              >
+                <Text style={styles.modalCopyBtnText}>📋 원문 복사하기</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalActionBtn, styles.modalCloseBtn]}
+                activeOpacity={0.7}
+                onPress={() => setDetailModalVisible(false)}
+              >
+                <Text style={styles.modalCloseBtnText}>닫기</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -275,6 +390,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 4,
   },
   deleteBtnText: {
     fontSize: 11,
@@ -294,5 +410,138 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9E9E9E',
     marginTop: 6,
+  },
+
+  // 모달 스타일
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    width: '100%',
+    maxHeight: '82%',
+    padding: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+  },
+  modalHeaderTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#212121',
+  },
+  modalCloseIcon: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#757575',
+    paddingHorizontal: 4,
+  },
+  modalScrollBody: {
+    marginTop: 12,
+  },
+  metaBox: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    gap: 6,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  metaLabel: {
+    width: 70,
+    fontSize: 12,
+    color: '#6c757d',
+    fontWeight: '600',
+  },
+  metaValue: {
+    flex: 1,
+    fontSize: 12,
+    color: '#212529',
+  },
+  rawSection: {
+    marginTop: 14,
+  },
+  rawHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  rawSectionTitle: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#343a40',
+  },
+  copyInlineBtn: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  copyInlineBtnText: {
+    fontSize: 11,
+    color: '#1565C0',
+    fontWeight: 'bold',
+  },
+  rawBox: {
+    backgroundColor: '#263238',
+    borderRadius: 8,
+    padding: 12,
+    minHeight: 120,
+  },
+  rawContentText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#ECEFF1',
+    fontFamily: 'monospace',
+  },
+  modalBtnRow: {
+    flexDirection: 'row',
+    marginTop: 16,
+    gap: 10,
+  },
+  modalActionBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCopyBtn: {
+    backgroundColor: '#E3F2FD',
+    borderWidth: 1,
+    borderColor: '#90CAF9',
+  },
+  modalCopyBtnText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#1565C0',
+  },
+  modalCloseBtn: {
+    backgroundColor: '#2196F3',
+  },
+  modalCloseBtnText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
   },
 });
