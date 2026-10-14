@@ -26,9 +26,16 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<AppNotificationRaw | null>(null);
 
-  const loadNotifications = useCallback(() => {
+  const loadNotifications = useCallback(async () => {
+    // 1. SQLite DB에 기존 저장된 푸시 알림 데이터 1차 로드
     const list = appNotificationDao.getRecentNotifications();
     setNotifications(list);
+
+    // 2. 네이티브 백그라운드 파일 버퍼(app_notifications_buffer.json)에 기록된 푸시 알림 로그를 DB로 즉시 수록 동기화
+    try {
+      const updatedList = await appNotificationDao.syncNativeBufferToDb();
+      setNotifications(updatedList);
+    } catch (e) {}
   }, []);
 
   useEffect(() => {
@@ -284,7 +291,7 @@ const styles = StyleSheet.create({
   },
   backBtnText: {
     fontSize: 14,
-    color: '#2196F3',
+    color: '#212121',
     fontWeight: 'bold',
   },
   bannerTitle: {
