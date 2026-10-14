@@ -23,8 +23,11 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
   onBack,
 }) => {
   const [notifications, setNotifications] = useState<AppNotificationRaw[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<AppNotificationRaw | null>(null);
+
+  const pageSize = 50; // 한 화면에 50건씩 페이징 처리
 
   const loadNotifications = useCallback(async () => {
     // 1. SQLite DB에 기존 저장된 푸시 알림 데이터 1차 로드
@@ -71,6 +74,12 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
       },
     ]);
   };
+
+  const totalPages = Math.ceil(notifications.length / pageSize) || 1;
+  const paginatedNotifications = notifications.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   const renderHeader = () => (
     <View style={styles.tableHeader}>
@@ -160,21 +169,50 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
         </Text>
       </View>
 
-      <FlatList
-        data={notifications}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={renderHeader}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={
-          <View style={styles.emptyBox}>
-            <Text style={styles.emptyText}>보관된 앱 푸시 알림 로그가 없습니다.</Text>
-            <Text style={styles.emptySubText}>
-              상단의 [알림 접근 허용] 권한이 활성화되어 있으면 카드사/금융 앱 푸시 알림이 원문 그대로 실시간 수록됩니다.
+      <View style={{ flex: 1 }}>
+        <FlatList
+          data={paginatedNotifications}
+          keyExtractor={(item) => item.id}
+          ListHeaderComponent={renderHeader}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          ListEmptyComponent={
+            <View style={styles.emptyBox}>
+              <Text style={styles.emptyText}>보관된 앱 푸시 알림 로그가 없습니다.</Text>
+              <Text style={styles.emptySubText}>
+                상단의 [알림 접근 허용] 권한이 활성화되어 있으면 카드사/금융 앱 푸시 알림이 원문 그대로 실시간 수록됩니다.
+              </Text>
+            </View>
+          }
+        />
+
+        {/* 한 화면 50건 페이징 컨트롤러 */}
+        <View style={styles.paginationRow}>
+          <TouchableOpacity
+            style={[styles.pageBtn, currentPage <= 1 && styles.disabledPageBtn]}
+            disabled={currentPage <= 1}
+            onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
+          >
+            <Text style={[styles.pageBtnText, currentPage <= 1 && styles.disabledPageBtnText]}>
+              ◀ 이전 50건
             </Text>
-          </View>
-        }
-      />
+          </TouchableOpacity>
+
+          <Text style={styles.pageInfoText}>
+            {currentPage} / {totalPages} 페이지 (총 {notifications.length}건)
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.pageBtn, currentPage >= totalPages && styles.disabledPageBtn]}
+            disabled={currentPage >= totalPages}
+            onPress={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+          >
+            <Text style={[styles.pageBtnText, currentPage >= totalPages && styles.disabledPageBtnText]}>
+              다음 50건 ▶
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {/* 앱 푸시 원문 상세 POPUP 모달 */}
       <Modal
@@ -291,7 +329,7 @@ const styles = StyleSheet.create({
   },
   backBtnText: {
     fontSize: 14,
-    color: '#212121',
+    color: '#2196F3',
     fontWeight: 'bold',
   },
   bannerTitle: {
@@ -389,6 +427,38 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#D32F2F',
     fontWeight: 'bold',
+  },
+  paginationRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+  },
+  pageBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 6,
+  },
+  disabledPageBtn: {
+    backgroundColor: '#F5F5F5',
+  },
+  pageBtnText: {
+    fontSize: 12,
+    color: '#1976D2',
+    fontWeight: 'bold',
+  },
+  disabledPageBtnText: {
+    color: '#BDBDBD',
+  },
+  pageInfoText: {
+    fontSize: 12,
+    color: '#424242',
+    fontWeight: '600',
   },
   emptyBox: {
     padding: 40,
