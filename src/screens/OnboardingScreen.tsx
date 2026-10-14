@@ -12,10 +12,12 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Linking,
+  Modal,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { setNickname, setNicknameCreatedAt, setMonthlyBudget } from '../storage/mmkv';
 import { syncSmsHistoryForDate } from '../services/smsHistoryService';
+import { backupService } from '../services/backupService';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
 const ADJECTIVES = [
@@ -75,6 +77,8 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [budgetStr, setBudgetStr] = useState('');
+  const [restoreModalVisible, setRestoreModalVisible] = useState(false);
+  const [restoreJsonInput, setRestoreJsonInput] = useState('');
 
   const nameInputRef = useRef<TextInput>(null);
   const budgetInputRef = useRef<TextInput>(null);
@@ -90,6 +94,23 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
   const handleGenerateRandomNickname = () => {
     const randomName = getRandomNickname();
     setName(randomName);
+  };
+
+  const handleExecuteRestore = () => {
+    if (!restoreJsonInput.trim()) {
+      Alert.alert('알림', '복구할 JSON 백업 데이터 내용을 입력해 주세요.');
+      return;
+    }
+
+    const result = backupService.restoreFromBackupJson(restoreJsonInput.trim());
+    if (result.success) {
+      setRestoreModalVisible(false);
+      Alert.alert('복구 완료', '기존 백업 데이터가 정상 복구되었습니다!', [
+        { text: '확인', onPress: () => onComplete() },
+      ]);
+    } else {
+      Alert.alert('복구 실패', result.message);
+    }
   };
 
   const handleSave = async () => {
@@ -220,8 +241,65 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
           <TouchableOpacity style={styles.button} onPress={handleSave}>
             <Text style={styles.buttonText}>시작하기</Text>
           </TouchableOpacity>
+
+          {/* 기존 데이터 불러오기 버튼 */}
+          <TouchableOpacity
+            style={styles.restoreBtn}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={() => setRestoreModalVisible(true)}
+          >
+            <Text style={styles.restoreBtnText}>📥 기존 백업 데이터 불러오기 (복구)</Text>
+          </TouchableOpacity>
         </ScrollView>
       </TouchableWithoutFeedback>
+
+      {/* 복구 모달 */}
+      <Modal
+        visible={restoreModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRestoreModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>📥 백업 데이터 복구</Text>
+            <Text style={styles.modalSubText}>
+              기존 디바이스에서 백업받은 JSON 백업 데이터를 아래 입력창에 붙여넣어 주세요.
+            </Text>
+
+            <TextInput
+              style={styles.modalInput}
+              multiline
+              placeholder="여기에 JSON 백업 데이터를 붙여넣으세요..."
+              placeholderTextColor="#9E9E9E"
+              value={restoreJsonInput}
+              onChangeText={setRestoreJsonInput}
+              disableFullscreenUI={true}
+            />
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: '#F5F5F5' }]}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={() => setRestoreModalVisible(false)}
+              >
+                <Text style={{ color: '#666666', fontWeight: 'bold' }}>취소</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: '#FF9800' }]}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={handleExecuteRestore}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>복구 실행</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -292,5 +370,63 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  restoreBtn: {
+    marginTop: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFF3E0',
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFB74D',
+  },
+  restoreBtnText: {
+    color: '#E65100',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#212121',
+    marginBottom: 6,
+  },
+  modalSubText: {
+    fontSize: 12,
+    color: '#666666',
+    marginBottom: 12,
+  },
+  modalInput: {
+    backgroundColor: '#1E1E1E',
+    color: '#4CAF50',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 12,
+    fontFamily: 'monospace',
+    height: 220,
+    textAlignVertical: 'top',
+  },
+  modalBtnRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 14,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
   },
 });

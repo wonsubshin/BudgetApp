@@ -10,6 +10,8 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
+  Clipboard,
+  Modal,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { useFocusEffect } from '@react-navigation/native';
@@ -24,7 +26,9 @@ import { recurringDao } from '../database/recurringDao';
 import { holidayDao } from '../database/holidayDao';
 import { holidayService } from '../services/holidayService';
 import { syncSmsHistoryForDate } from '../services/smsHistoryService';
+import { backupService } from '../services/backupService';
 import { RecurringRuleModal } from '../components/settings/RecurringRuleModal';
+import { SmsSyncHistoryModal } from '../components/settings/SmsSyncHistoryModal';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
 
 interface SettingsScreenProps {
@@ -51,6 +55,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [customHolidays, setCustomHolidays] = useState<Holiday[]>([]);
   const [customDate, setCustomDate] = useState('');
   const [customName, setCustomName] = useState('');
+
+  // 팝업 모달 상태
+  const [smsSyncModalVisible, setSmsSyncModalVisible] = useState(false);
+  const [restoreModalVisible, setRestoreModalVisible] = useState(false);
+  const [restoreJsonInput, setRestoreJsonInput] = useState('');
 
   const loadSettingsData = useCallback(() => {
     setRecurringRules(recurringDao.getAllRecurringRules());
@@ -127,13 +136,45 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
+  // 가계부 전체 데이터 JSON 백업 내보내기
+  const handleExportBackupData = () => {
+    try {
+      const jsonStr = backupService.generateBackupJson();
+      Clipboard.setString(jsonStr);
+      Alert.alert(
+        '📦 백업 생성 완료',
+        '가계부 전체 데이터(닉네임, 예산, 거래 내역, 정기결제, 예외단어 등)가 JSON 포맷으로 생성되어 클립보드에 복사되었습니다!\n\n다른 기기에서 [백업 데이터 복구] 시 이 문구를 그대로 붙여넣으시면 동일하게 복구됩니다.'
+      );
+    } catch (e: any) {
+      Alert.alert('백업 실패', e?.message || '백업 데이터 생성 중 오류가 발생했습니다.');
+    }
+  };
+
+  // JSON 백업 데이터 복구 실행
+  const handleExecuteRestore = () => {
+    if (!restoreJsonInput.trim()) {
+      Alert.alert('알림', '복구할 JSON 백업 데이터 내용을 입력하거나 붙여넣어 주세요.');
+      return;
+    }
+
+    const result = backupService.restoreFromBackupJson(restoreJsonInput.trim());
+    if (result.success) {
+      setRestoreModalVisible(false);
+      setRestoreJsonInput('');
+      loadSettingsData();
+      Alert.alert('복구 성공', result.message);
+    } else {
+      Alert.alert('복구 실패', result.message);
+    }
+  };
+
   // 알림 접근 권한(NotificationListenerService) 설정 화면 열기
   const handleOpenNotificationAccessSettings = () => {
     if (Platform.OS === 'android') {
       try {
         Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
       } catch (e) {
-        Alert.alert('안내', '스마트폰 [설정 -> 애플리케이션 -> 특별한 접근 -> 알림 접근 허용]에서 BudgetApp을 허용해 주세요.');
+        Alert.alert('안내', '스마트폰 [설정 -> 애플리케이션 -> 특별한 접근 -> 알림 접근 허용]에서 예산가계부를 허용해 주세요.');
       }
     }
   };
@@ -252,7 +293,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </View>
       </View>
 
-      {/* 2. 결제 문자 / 푸시 수신함 실시간 동기화 및 관리 메뉴 */}
+      {/* 2. 결제 데이터 백업 및 데이터 복구 영역 */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>📦 데이터 백업 및 복구 (JSON)</Text>
+        <Text style={styles.sectionSub}>
+          가계부 이력, 닉네임, 예산, 정기결제, 예외문구 등의 전체 데이터를 JSON 포맷으로 백업하거나 복구합니다.
+        </Text>
+        <View style={styles.row}>
+          <TouchableOpacity
+            style={[styles.syncBtn, { flex: 1, backgroundColor: '#4CAF50' }]}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={handleExportBackupData}
+          >
+            <Text style={styles.syncBtnText}>📦 전체 백업 생성</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.syncBtn, { flex: 1, backgroundColor: '#FF9800' }]}
+            activeOpacity={0.7}
+            delayPressIn={0}
+            onPress={() => setRestoreModalVisible(true)}
+          >
+            <Text style={styles.syncBtnText}>📥 데이터 복구</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* 3. 결제 문자 / 푸시 수신함 실시간 동기화 및 관리 메뉴 */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>📱 수신함 결제 내역 실시간 동기화</Text>
         <Text style={styles.sectionSub}>
@@ -270,6 +338,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           ) : (
             <Text style={styles.syncBtnText}>📱 수신함 결제 내역 실시간 동기화 실행</Text>
           )}
+        </TouchableOpacity>
+
+        {/* 수신함 결제 문자 동기화 내역 보기 POPUP 버튼 */}
+        <TouchableOpacity
+          style={[styles.menuNavBtn, { backgroundColor: '#E0F2F1', borderColor: '#80CBC4' }]}
+          activeOpacity={0.7}
+          delayPressIn={0}
+          onPress={() => setSmsSyncModalVisible(true)}
+        >
+          <Text style={[styles.menuNavBtnText, { color: '#00695C' }]}>
+            📋 수신함 결제 문자 동기화 파싱 내역 보기 (POPUP) ➔
+          </Text>
         </TouchableOpacity>
 
         {/* 실시간 앱 푸시 알림 접근 권한 활성화 버튼 */}
@@ -303,7 +383,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* 3. 공휴일 동기화 */}
+      {/* 4. 공휴일 동기화 */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>🗓️ 공휴일 API 동기화</Text>
         <Text style={styles.sectionSub}>
@@ -328,7 +408,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* 4. 정기 결제 관리 */}
+      {/* 5. 정기 결제 관리 */}
       <View style={styles.section}>
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>🔄 정기 결제 내역 관리</Text>
@@ -379,7 +459,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         ))}
       </View>
 
-      {/* 5. 임시 공휴일 수동 관리 및 페이지 이동 */}
+      {/* 6. 임시 공휴일 수동 관리 및 페이지 이동 */}
       <View style={styles.section}>
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>✏️ 임시공휴일 수동 관리</Text>
@@ -448,6 +528,59 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         onClose={() => setModalVisible(false)}
         onSave={handleSaveRule}
       />
+
+      {/* 수신함 결제 문자 동기화 파싱 내역 보기 POPUP 모달 */}
+      <SmsSyncHistoryModal
+        visible={smsSyncModalVisible}
+        onClose={() => setSmsSyncModalVisible(false)}
+      />
+
+      {/* 백업 데이터 복구 모달 */}
+      <Modal
+        visible={restoreModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRestoreModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>📥 백업 데이터 붙여넣기 복구</Text>
+            <Text style={styles.modalSubText}>
+              복사한 JSON 백업 데이터 텍스트를 아래 입력창에 붙여넣고 [복구 실행] 버튼을 눌러주세요.
+            </Text>
+
+            <TextInput
+              style={styles.modalInput}
+              multiline
+              placeholder="여기에 JSON 백업 데이터를 붙여넣으세요..."
+              placeholderTextColor="#9E9E9E"
+              value={restoreJsonInput}
+              onChangeText={setRestoreJsonInput}
+              disableFullscreenUI={true}
+            />
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: '#F5F5F5' }]}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={() => setRestoreModalVisible(false)}
+              >
+                <Text style={{ color: '#666666', fontWeight: 'bold' }}>취소</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalBtn, { backgroundColor: '#FF9800' }]}
+                activeOpacity={0.7}
+                delayPressIn={0}
+                onPress={handleExecuteRestore}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>복구 실행</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 };
@@ -618,5 +751,49 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#D32F2F',
     fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#212121',
+    marginBottom: 6,
+  },
+  modalSubText: {
+    fontSize: 12,
+    color: '#666666',
+    marginBottom: 12,
+  },
+  modalInput: {
+    backgroundColor: '#1E1E1E',
+    color: '#4CAF50',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 12,
+    fontFamily: 'monospace',
+    height: 220,
+    textAlignVertical: 'top',
+  },
+  modalBtnRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 14,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
   },
 });
