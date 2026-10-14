@@ -7,13 +7,11 @@ export const transactionDao = {
   insertTransaction(tx: Transaction): void {
     const db = getDb();
 
-    // 파싱 예외 단어 및 무효 가맹점 키워드 체크 ("드렸어요!", "결제금액", "q.samsungcard.com" 등)
-    if (
-      tx.merchant.includes('드렸어요') ||
-      tx.merchant.includes('결제금액') ||
-      tx.merchant.includes('q.samsungcard.com')
-    ) {
-      console.log(`⚠️ 예외 가맹점 키워드 차단: ${tx.merchant}`);
+    // 예외 처리 관리 DB(parse_exceptions)에서 동적 키워드 리스트를 읽어와 파싱 예외 처리
+    const exceptions = parseExceptionDao.getAllExceptions();
+    const isExcluded = exceptions.some((e) => e.keyword && tx.merchant.includes(e.keyword));
+    if (isExcluded) {
+      console.log(`⚠️ DB 파싱 예외 단어 매칭 차단: ${tx.merchant}`);
       return;
     }
 
@@ -133,7 +131,7 @@ export const transactionDao = {
     let totalPurged = 0;
 
     parseExceptions.forEach((e) => {
-      if (e.keyword.trim()) {
+      if (e.keyword && e.keyword.trim()) {
         try {
           const res = db.execute(
             'DELETE FROM transactions WHERE merchant LIKE ? OR card_company LIKE ?;',
@@ -143,14 +141,6 @@ export const transactionDao = {
         } catch (err) {}
       }
     });
-
-    // 기본 무효 가맹점 정제 ("드렸어요", "결제금액", "q.samsungcard.com")
-    try {
-      const res1 = db.execute("DELETE FROM transactions WHERE merchant LIKE '%드렸어요%';");
-      const res2 = db.execute("DELETE FROM transactions WHERE merchant LIKE '%결제금액%';");
-      const res3 = db.execute("DELETE FROM transactions WHERE merchant LIKE '%q.samsungcard.com%';");
-      totalPurged += (res1.rowsAffected || 0) + (res2.rowsAffected || 0) + (res3.rowsAffected || 0);
-    } catch (err) {}
 
     if (totalPurged > 0) {
       DeviceEventEmitter.emit('TRANSACTION_UPDATED');
