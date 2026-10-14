@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ContentResolver
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import com.budgetapp.notification.AppNotificationListener
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -12,6 +13,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -32,6 +34,36 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("CLIPBOARD_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun saveBackupFileToDownload(jsonContent: String, fileName: String, promise: Promise) {
+        try {
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!downloadsDir.exists()) {
+                downloadsDir.mkdirs()
+            }
+            val file = File(downloadsDir, fileName)
+            file.writeText(jsonContent, Charsets.UTF_8)
+
+            // 안드로이드 미디어 스캐너에 등록하여 내 파일(My Files) 앱의 다운로드 폴더에 즉시 노출
+            android.media.MediaScannerConnection.scanFile(
+                reactContext,
+                arrayOf(file.absolutePath),
+                arrayOf("text/plain"),
+                null
+            )
+
+            promise.resolve(file.absolutePath)
+        } catch (e: Exception) {
+            try {
+                val file = File(reactContext.externalCacheDir, fileName)
+                file.writeText(jsonContent, Charsets.UTF_8)
+                promise.resolve(file.absolutePath)
+            } catch (ex: Exception) {
+                promise.reject("FILE_SAVE_ERROR", ex.message, ex)
+            }
         }
     }
 
@@ -136,6 +168,45 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                     map.putString("merchant", res.merchant)
                     resultList.pushMap(map)
                 }
+            }
+        } catch (e: Exception) {}
+
+        // 3. DB에 저장된 실제 결제 내역을 보조 원천으로 안심 보장
+        try {
+            val dbPath = reactContext.getDatabasePath("budget_app.db")
+            if (dbPath.exists()) {
+                val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+                val cursor = db.rawQuery("SELECT date, amount, merchant, card_company, created_at FROM transactions ORDER BY date DESC LIMIT 100;", null)
+                cursor?.use {
+                    val dateIdx = it.getColumnIndex("date")
+                    val amtIdx = it.getColumnIndex("amount")
+                    val merIdx = it.getColumnIndex("merchant")
+                    val cardIdx = it.getColumnIndex("card_company")
+                    val createdIdx = it.getColumnIndex("created_at")
+
+                    while (it.moveToNext()) {
+                        val d = if (dateIdx != -1) it.getString(dateIdx) ?: "" else ""
+                        val amt = if (amtIdx != -1) it.getInt(amtIdx) else 0
+                        val mer = if (merIdx != -1) it.getString(merIdx) ?: "" else ""
+                        val card = if (cardIdx != -1) it.getString(cardIdx) ?: "삼성카드" else "삼성카드"
+                        val created = if (createdIdx != -1) it.getString(createdIdx) ?: d else d
+
+                        val bodyText = "$card 승인 $mer ${amt}원"
+                        if (!processedBodies.contains(bodyText)) {
+                            processedBodies.add(bodyText)
+                            val map: WritableMap = Arguments.createMap()
+                            map.putString("id", "db_${created}_${processedBodies.size}")
+                            map.putString("receivedTime", created)
+                            map.putString("body", bodyText)
+                            map.putBoolean("isTarget", true)
+                            map.putString("cardCompany", card)
+                            map.putInt("amount", amt)
+                            map.putString("merchant", mer)
+                            resultList.pushMap(map)
+                        }
+                    }
+                }
+                db.close()
             }
         } catch (e: Exception) {}
 
