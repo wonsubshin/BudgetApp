@@ -66,9 +66,23 @@ class AppNotificationListener : NotificationListenerService() {
     ) {
         try {
             val dbPath = getDatabasePath("budget_app.db")
-            if (!dbPath.exists()) return
+            dbPath.parentFile?.mkdirs()
 
             val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+
+            // 테이블이 없는 경우 자동 생성 보장
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS app_notifications_raw (" +
+                        "id TEXT PRIMARY KEY NOT NULL, " +
+                        "package_name TEXT NOT NULL, " +
+                        "title TEXT, " +
+                        "text TEXT, " +
+                        "big_text TEXT, " +
+                        "raw_content TEXT NOT NULL, " +
+                        "post_time TEXT NOT NULL, " +
+                        "created_at TEXT DEFAULT CURRENT_TIMESTAMP);"
+            )
+
             val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
             val postTimeStr = sdf.format(Date(if (postTimeMs > 0) postTimeMs else System.currentTimeMillis()))
             val id = "${postTimeMs}_${(1000..9999).random()}"
@@ -82,7 +96,7 @@ class AppNotificationListener : NotificationListenerService() {
             db.execSQL("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days');")
             db.close()
         } catch (e: Exception) {
-            // Ignore
+            android.util.Log.e("AppNotificationListener", "Failed to save raw notification: ${e.message}", e)
         }
     }
 
@@ -123,6 +137,16 @@ class AppNotificationListener : NotificationListenerService() {
                         val fullContent = "$title\n$text\n$bigText".trim()
 
                         if (fullContent.isNotBlank()) {
+                            // 활성 푸시 스캔 시에도 DB 원문 저장 실행
+                            listener.saveRawNotification(
+                                sbn.packageName ?: "",
+                                title,
+                                text,
+                                bigText,
+                                fullContent,
+                                postTime
+                            )
+
                             val result = FinancialTextParser.parse(fullContent, postTime, "PUSH")
                             if (result.isPayment) {
                                 FinancialParserModule.emitPaymentEvent(

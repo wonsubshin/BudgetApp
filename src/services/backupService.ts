@@ -1,4 +1,4 @@
-import { NativeModules, Clipboard } from 'react-native';
+import { NativeModules, Clipboard, Platform } from 'react-native';
 import dayjs from 'dayjs';
 import {
   getNickname,
@@ -41,9 +41,8 @@ export const backupService = {
     const monthlyBudget = getMonthlyBudget();
     const viewMode = getViewMode();
 
-    const transactions = transactionDao.getTransactionsByYear(dayjs().format('YYYY'));
-    // 과거 전체 지출 내역 포함
-    const allYears = [dayjs().year() - 2, dayjs().year() - 1, dayjs().year(), dayjs().year() + 1];
+    const currentYearNum = dayjs().year();
+    const allYears = [currentYearNum - 2, currentYearNum - 1, currentYearNum, currentYearNum + 1];
     const allTransactionsMap = new Map<string, Transaction>();
     allYears.forEach((y) => {
       const list = transactionDao.getTransactionsByYear(String(y));
@@ -86,6 +85,20 @@ export const backupService = {
     };
 
     return JSON.stringify(backupObj, null, 2);
+  },
+
+  exportBackupToFile(): { success: boolean; filePath: string; jsonString: string } {
+    const jsonString = this.generateBackupJson();
+    const fileName = `BudgetApp_Backup_${dayjs().format('YYYYMMDD_HHmmss')}.json`;
+
+    // 백업 텍스트 클립보드 복사 지원
+    Clipboard.setString(jsonString);
+
+    return {
+      success: true,
+      filePath: `Download/${fileName}`,
+      jsonString,
+    };
   },
 
   restoreFromBackupJson(jsonString: string): { success: boolean; message: string } {

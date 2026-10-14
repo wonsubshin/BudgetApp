@@ -26,6 +26,11 @@ export const ParseExceptionsScreen: React.FC<ParseExceptionsScreenProps> = ({
   const loadExceptions = useCallback(() => {
     const list = parseExceptionDao.getAllExceptions();
     setExceptions(list);
+
+    // 등록된 예외 단어가 포함된 기존 DB 결제 이력을 자동으로 정제 및 삭제
+    list.forEach((e) => {
+      transactionDao.deleteTransactionsByKeyword(e.keyword);
+    });
   }, []);
 
   useEffect(() => {
@@ -57,7 +62,7 @@ export const ParseExceptionsScreen: React.FC<ParseExceptionsScreenProps> = ({
       if (purgedCount > 0) {
         Alert.alert(
           '성공',
-          `'${trimmed}' 문구가 파싱 예외 단어로 등록되었으며, 해당 단어가 포함되어 기존 등록되었던 결제 이력 ${purgedCount}건을 즉시 삭제 정제했습니다.`
+          `'${trimmed}' 문구가 파싱 예외 단어로 등록되었으며, 해당 단어가 포함되어 기존 등록되었던 결제 이력 ${purgedCount}건을 가계부 DB에서 즉시 정제 삭제했습니다.`
         );
       } else {
         Alert.alert('성공', `'${trimmed}' 문구가 파싱 예외 단어로 정상 등록되었습니다.`);
