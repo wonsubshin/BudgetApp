@@ -27,27 +27,14 @@ data class DynamicExceptionRule(
 
 object FinancialTextParser {
 
-    private val dynamicExceptions = mutableListOf<DynamicExceptionRule>(
-        DynamicExceptionRule("광고", applyPush = true, applySms = true),
-        DynamicExceptionRule("q.samsungcard.com", applyPush = true, applySms = true),
-        DynamicExceptionRule("네이버페이", applyPush = true, applySms = true)
-    )
+    // 하드코딩 없이 DB에서 불러온 예외 규칙만을 동적으로 적용
+    private val dynamicExceptions = mutableListOf<DynamicExceptionRule>()
 
     @JvmStatic
     fun setDynamicExceptionRules(rules: List<DynamicExceptionRule>) {
         synchronized(dynamicExceptions) {
             dynamicExceptions.clear()
             dynamicExceptions.addAll(rules.filter { it.keyword.isNotBlank() })
-            // 기본 예외 키워드 보장
-            if (dynamicExceptions.none { it.keyword == "광고" }) {
-                dynamicExceptions.add(DynamicExceptionRule("광고", applyPush = true, applySms = true))
-            }
-            if (dynamicExceptions.none { it.keyword == "q.samsungcard.com" }) {
-                dynamicExceptions.add(DynamicExceptionRule("q.samsungcard.com", applyPush = true, applySms = true))
-            }
-            if (dynamicExceptions.none { it.keyword == "네이버페이" }) {
-                dynamicExceptions.add(DynamicExceptionRule("네이버페이", applyPush = true, applySms = true))
-            }
         }
     }
 
@@ -105,7 +92,7 @@ object FinancialTextParser {
             return ParsedPaymentResult(false, "", 0, "", "", "", "LUMP_SUM", 1)
         }
 
-        // 0. 동적으로 등록된 영역별 예외 문구가 포함된 메시지는 파싱에서 즉시 제외
+        // 0. 동적으로 DB에서 불러온 영역별 예외 문구가 포함된 메시지는 파싱에서 즉시 제외
         val sourceUpper = sourceType.uppercase(Locale.getDefault())
         synchronized(dynamicExceptions) {
             for (rule in dynamicExceptions) {

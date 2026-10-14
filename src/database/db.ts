@@ -85,11 +85,13 @@ export const initDatabase = (): void => {
     );
   `);
 
-  // 초기 예외 키워드 시드 세팅 ('광고', 'q.samsungcard.com', '네이버페이')
+  // 초기 예외 키워드 시드 세팅 ('광고': 둘 다, 'q.samsungcard.com': 둘 다, '네이버페이': PUSH만)
   try {
     db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('1', '광고', 1, 1);`);
     db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('2', 'q.samsungcard.com', 1, 1);`);
-    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('3', '네이버페이', 1, 1);`);
+    db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('3', '네이버페이', 1, 0);`);
+    // 만약 기존 데이터베이스에 '네이버페이'의 apply_sms가 1로 설정되어 있는 경우 PUSH 전용(0)으로 자동 업데이트
+    db.execute(`UPDATE parse_exceptions SET apply_sms = 0 WHERE keyword = '네이버페이';`);
   } catch (e) {}
 
   // 기존 설치 기기 컬럼 마이그레이션
