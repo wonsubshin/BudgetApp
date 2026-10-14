@@ -100,6 +100,19 @@ export const transactionDao = {
     DeviceEventEmitter.emit('TRANSACTION_UPDATED');
   },
 
+  deleteTransactionsByKeyword(keyword: string): number {
+    const db = getDb();
+    const trimmed = keyword.trim();
+    if (!trimmed) return 0;
+    try {
+      const res = db.execute('DELETE FROM transactions WHERE merchant LIKE ?;', [`%${trimmed}%`]);
+      DeviceEventEmitter.emit('TRANSACTION_UPDATED');
+      return res.rowsAffected || 0;
+    } catch (e) {
+      return 0;
+    }
+  },
+
   getTransactionsByDate(dateStr: string): Transaction[] {
     const db = getDb();
     const result = db.execute(

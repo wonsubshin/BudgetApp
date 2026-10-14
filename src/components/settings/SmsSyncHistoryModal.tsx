@@ -47,54 +47,18 @@ export const SmsSyncHistoryModal: React.FC<SmsSyncHistoryModalProps> = ({
   const loadInboxMessages = async () => {
     setIsLoading(true);
     try {
-      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.syncSmsHistoryWithLog === 'function') {
-        const result = await SmsHistoryParserModule.syncSmsHistoryWithLog('ALL');
-        const logText: string = result?.debugLog || '';
+      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.getInboxMessagesForInspection === 'function') {
+        const rawList: any[] = await SmsHistoryParserModule.getInboxMessagesForInspection();
 
-        const parsedItems: SmsMessageItem[] = [];
-        const lines = logText.split('\n');
-
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-
-          if (line.includes('Match Found]') || line.includes('Candidate Inspected]')) {
-            const isMatch = line.includes('Match Found]');
-            const timeMatch = line.match(/Time:\s*([0-9\s-:]+)/) || line.match(/\]\s*([0-9\s-:]+)/) || line.match(/Date:\s*([0-9\s-:]+)/);
-            const timeStr = timeMatch ? timeMatch[1].trim() : dayjs().format('YYYY-MM-DD HH:mm:ss');
-
-            if (isMatch) {
-              const cardM = line.match(/Card:\s*([^|]+)/);
-              const amountM = line.match(/Amount:\s*([0-9]+)/);
-              const merchantM = line.match(/Merchant:\s*([^|]+)/);
-
-              const cardCompany = cardM ? cardM[1].trim() : '카드';
-              const amount = amountM ? parseInt(amountM[1].trim(), 10) : 0;
-              const merchant = merchantM ? merchantM[1].trim() : '사용처';
-
-              parsedItems.push({
-                id: `msg_${i}_${Date.now()}`,
-                receivedTime: timeStr,
-                body: `${cardCompany} 승인 ${merchant} ${amount.toLocaleString()}원`,
-                isTarget: true,
-                cardCompany,
-                amount,
-                merchant,
-              });
-            } else {
-              let content = '(일반/광고/비대상 문자 내용)';
-              if (i + 1 < lines.length && lines[i + 1].includes('Content:')) {
-                content = lines[i + 1].replace('Content:', '').trim();
-              }
-
-              parsedItems.push({
-                id: `msg_${i}_${Date.now()}`,
-                receivedTime: timeStr,
-                body: content,
-                isTarget: false,
-              });
-            }
-          }
-        }
+        const parsedItems: SmsMessageItem[] = (rawList || []).map((item, idx) => ({
+          id: item.id || `msg_${idx}_${Date.now()}`,
+          receivedTime: item.receivedTime || dayjs().format('YYYY-MM-DD HH:mm:ss'),
+          body: item.body || '(문자 내용)',
+          isTarget: Boolean(item.isTarget),
+          cardCompany: item.cardCompany || '카드',
+          amount: item.amount || 0,
+          merchant: item.merchant || '사용처',
+        }));
 
         setMessages(parsedItems);
       }

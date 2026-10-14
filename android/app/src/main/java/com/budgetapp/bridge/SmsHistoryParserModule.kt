@@ -10,6 +10,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -62,6 +63,83 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
         } catch (e: Exception) {
             // Ignore
         }
+    }
+
+    @ReactMethod
+    fun getInboxMessagesForInspection(promise: Promise) {
+        loadDynamicExceptionsFromDb()
+        val resultList: WritableArray = Arguments.createArray()
+        val processedBodies = HashSet<String>()
+        val contentResolver: ContentResolver = reactContext.contentResolver
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+
+        // 1. 삼성 RCS IM 저장소 (content://im/rcs_read_im)
+        try {
+            val rcsUri = Uri.parse("content://im/rcs_read_im")
+            val rcsCursor = contentResolver.query(rcsUri, null, null, null, "date DESC LIMIT 100")
+            rcsCursor?.use { c ->
+                val bodyIdx = if (c.getColumnIndex("body") != -1) c.getColumnIndex("body") else c.getColumnIndex("text")
+                val dateIdx = if (c.getColumnIndex("date") != -1) c.getColumnIndex("date") else c.getColumnIndex("date_sent")
+
+                while (c.moveToNext()) {
+                    val rawBody = if (bodyIdx != -1) c.getString(bodyIdx) ?: "" else ""
+                    var msgTime = if (dateIdx != -1) c.getLong(dateIdx) else 0L
+
+                    if (rawBody.isBlank()) continue
+                    if (processedBodies.contains(rawBody)) continue
+                    processedBodies.add(rawBody)
+
+                    if (msgTime in 1..9999999999L) msgTime *= 1000L
+                    val timeStr = sdf.format(Date(if (msgTime > 0) msgTime else System.currentTimeMillis()))
+                    val res = FinancialTextParser.parse(rawBody, msgTime, "SMS")
+
+                    val map: WritableMap = Arguments.createMap()
+                    map.putString("id", "rcs_${msgTime}_${processedBodies.size}")
+                    map.putString("receivedTime", timeStr)
+                    map.putString("body", FinancialTextParser.extractTextFromRcsJson(rawBody))
+                    map.putBoolean("isTarget", res.isPayment)
+                    map.putString("cardCompany", res.cardCompany)
+                    map.putInt("amount", res.amount)
+                    map.putString("merchant", res.merchant)
+                    resultList.pushMap(map)
+                }
+            }
+        } catch (e: Exception) {}
+
+        // 2. SMS 수신함 (content://sms/inbox)
+        try {
+            val smsUri = Uri.parse("content://sms/inbox")
+            val smsCursor = contentResolver.query(smsUri, arrayOf("body", "date"), null, null, "date DESC LIMIT 150")
+            smsCursor?.use { cursor ->
+                val bodyIdx = cursor.getColumnIndex("body")
+                val dateIdx = cursor.getColumnIndex("date")
+
+                while (cursor.moveToNext()) {
+                    val body = if (bodyIdx != -1) cursor.getString(bodyIdx) ?: "" else ""
+                    var smsTime = if (dateIdx != -1) cursor.getLong(dateIdx) else 0L
+
+                    if (body.isBlank()) continue
+                    if (processedBodies.contains(body)) continue
+                    processedBodies.add(body)
+
+                    if (smsTime in 1..9999999999L) smsTime *= 1000L
+                    val timeStr = sdf.format(Date(if (smsTime > 0) smsTime else System.currentTimeMillis()))
+                    val res = FinancialTextParser.parse(body, smsTime, "SMS")
+
+                    val map: WritableMap = Arguments.createMap()
+                    map.putString("id", "sms_${smsTime}_${processedBodies.size}")
+                    map.putString("receivedTime", timeStr)
+                    map.putString("body", body)
+                    map.putBoolean("isTarget", res.isPayment)
+                    map.putString("cardCompany", res.cardCompany)
+                    map.putInt("amount", res.amount)
+                    map.putString("merchant", res.merchant)
+                    resultList.pushMap(map)
+                }
+            }
+        } catch (e: Exception) {}
+
+        promise.resolve(resultList)
     }
 
     @ReactMethod
@@ -119,7 +197,6 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
                             }
 
                             val fallbackTime = if (msgTime > 0) msgTime else System.currentTimeMillis()
-                            val msgReceivedDateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(fallbackTime))
 
                             val result = FinancialTextParser.parse(body, fallbackTime, "SMS")
                             if (result.isPayment) {

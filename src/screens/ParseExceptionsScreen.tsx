@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { parseExceptionDao, ParseException } from '../database/parseExceptionDao';
+import { transactionDao } from '../database/transactionDao';
 
 interface ParseExceptionsScreenProps {
   onBack?: () => void;
@@ -45,11 +46,22 @@ export const ParseExceptionsScreen: React.FC<ParseExceptionsScreenProps> = ({
 
     const success = parseExceptionDao.insertException(trimmed, applyPush, applySms);
     if (success) {
+      // 등록된 파싱 예외 단어가 포함된 기존 등록 거래 내역 즉시 찾아 정제 삭제
+      const purgedCount = transactionDao.deleteTransactionsByKeyword(trimmed);
+
       setNewKeyword('');
       setApplyPush(true);
       setApplySms(true);
       loadExceptions();
-      Alert.alert('성공', `'${trimmed}' 문구가 파싱 예외 단어로 등록되었습니다.`);
+
+      if (purgedCount > 0) {
+        Alert.alert(
+          '성공',
+          `'${trimmed}' 문구가 파싱 예외 단어로 등록되었으며, 해당 단어가 포함되어 기존 등록되었던 결제 이력 ${purgedCount}건을 즉시 삭제 정제했습니다.`
+        );
+      } else {
+        Alert.alert('성공', `'${trimmed}' 문구가 파싱 예외 단어로 정상 등록되었습니다.`);
+      }
     } else {
       Alert.alert('알림', '이미 등록된 예외 단어이거나 추가 중 오류가 발생했습니다.');
     }
@@ -140,7 +152,7 @@ export const ParseExceptionsScreen: React.FC<ParseExceptionsScreenProps> = ({
 
       <View style={styles.content}>
         <Text style={styles.noticeText}>
-          이곳에 등록된 단어가 포함된 메시지는 **체크된 영역(APP PUSH 또는 문자)에서 가계부 파싱이 예외 처리**됩니다. (둘 중 최소 하나 필수 선택)
+          이곳에 등록된 단어가 포함된 메시지는 **체크된 영역(APP PUSH 또는 문자)에서 가계부 파싱이 예외 처리**됩니다. 등록 시 해당 단어가 포함되어 기존 등록되었던 가계부 이력도 즉시 정제 삭제됩니다.
         </Text>
 
         <View style={styles.inputBox}>
