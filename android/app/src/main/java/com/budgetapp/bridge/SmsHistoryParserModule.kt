@@ -553,8 +553,14 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
             }
 
             // 푸시 알림 히스토리 분석
+            val isListenerConnected = AppNotificationListener.isServiceConnected()
+            logBuilder.append("\nNotificationListenerService Connected: ").append(isListenerConnected.toString()).append("\n")
+            if (!isListenerConnected) {
+                logBuilder.append("(!) 알림 리스너 서비스가 아직 활성화되지 않았습니다. 안드로이드 설정에서 '알림 접근 권한'이 예산가계부에 허용되어 있는지 확인해 주세요.\n")
+            }
+
             val pushCount = AppNotificationListener.syncPushHistoryForDate(targetDateStr)
-            logBuilder.append("\nPush Notification Sync Count: ").append(pushCount.toString()).append("\n")
+            logBuilder.append("Push Notification Sync Count: ").append(pushCount.toString()).append("\n")
             logBuilder.append("Total Parsed Card Transactions: ").append((parsedCount + pushCount).toString()).append("\n")
             logBuilder.append("=========================================\n")
 
@@ -574,5 +580,20 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun syncSmsHistoryForDate(targetDateStr: String, promise: Promise) {
         syncSmsHistoryWithLog(targetDateStr, promise)
+    }
+
+    @ReactMethod
+    fun getAppNotificationsBuffer(promise: Promise) {
+        try {
+            val bufferFile = File(reactContext.filesDir, "app_notifications_buffer.json")
+            if (bufferFile.exists()) {
+                val jsonStr = bufferFile.readText(Charsets.UTF_8)
+                promise.resolve(jsonStr)
+            } else {
+                promise.resolve("[]")
+            }
+        } catch (e: Exception) {
+            promise.resolve("[]")
+        }
     }
 }

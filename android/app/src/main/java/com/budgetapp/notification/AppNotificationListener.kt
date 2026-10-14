@@ -4,6 +4,9 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.budgetapp.bridge.FinancialParserModule
 import com.budgetapp.bridge.FinancialTextParser
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -14,6 +17,20 @@ class AppNotificationListener : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+    }
+
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        instance = this
+        android.util.Log.d("AppNotificationListener", "NotificationListenerService connected!")
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        if (instance == this) {
+            instance = null
+        }
+        android.util.Log.d("AppNotificationListener", "NotificationListenerService disconnected!")
     }
 
     override fun onDestroy() {
@@ -34,7 +51,7 @@ class AppNotificationListener : NotificationListenerService() {
 
         if (fullContent.isBlank()) return
 
-        // 1. 수신된 모든 앱 푸시 원문을 로컬 DB(app_notifications_raw)에 표준 컬럼별 영구 저장 (30일 초과 데이터 자동 청소)
+        // 1. 수신된 모든 앱 푸시 원문을 파일 버퍼 & 로컬 SQLite DB(app_notifications_raw)에 이중 보관
         saveRawNotification(packageName, title, text, bigText, fullContent, sbnObj.postTime)
 
         // 2. DB에서 최근 예외 단어 규칙 로드
@@ -64,44 +81,82 @@ class AppNotificationListener : NotificationListenerService() {
         fullContent: String,
         postTimeMs: Long
     ) {
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val postTimeStr = sdf.format(Date(if (postTimeMs > 0) postTimeMs else System.currentTimeMillis()))
+        val id = "${postTimeMs}_${(1000..9999).random()}"
+
+        // 1. JSON 파일 버퍼에 100% 보장 저장 (DB 락 발생 시 백업 수단)
         try {
-            val dbPath = getDatabasePath("budget_app.db")
-            dbPath.parentFile?.mkdirs()
+            val bufferFile = File(filesDir, "app_notifications_buffer.json")
+            val jsonArray = if (bufferFile.exists()) {
+                try { JSONArray(bufferFile.readText()) } catch (e: Exception) { JSONArray() }
+            } else {
+                JSONArray()
+            }
 
-            val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            val item = JSONObject().apply {
+                put("id", id)
+                put("package_name", packageName)
+                put("title", title)
+                put("text", text)
+                put("big_text", bigText)
+                put("raw_content", fullContent)
+                put("post_time", postTimeStr)
+            }
 
-            // 테이블이 없는 경우 자동 생성 보장
-            db.execSQL(
-                "CREATE TABLE IF NOT EXISTS app_notifications_raw (" +
-                        "id TEXT PRIMARY KEY NOT NULL, " +
-                        "package_name TEXT NOT NULL, " +
-                        "title TEXT, " +
-                        "text TEXT, " +
-                        "big_text TEXT, " +
-                        "raw_content TEXT NOT NULL, " +
-                        "post_time TEXT NOT NULL, " +
-                        "created_at TEXT DEFAULT CURRENT_TIMESTAMP);"
-            )
-
-            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-            val postTimeStr = sdf.format(Date(if (postTimeMs > 0) postTimeMs else System.currentTimeMillis()))
-            val id = "${postTimeMs}_${(1000..9999).random()}"
-
-            db.execSQL(
-                "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time) VALUES (?, ?, ?, ?, ?, ?, ?);",
-                arrayOf(id, packageName, title, text, bigText, fullContent, postTimeStr)
-            )
-
-            // 30일 지난 오래된 앱 푸시 원문 자동 삭제
-            db.execSQL("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days');")
-            db.close()
+            jsonArray.put(item)
+            while (jsonArray.length() > 300) {
+                jsonArray.remove(0)
+            }
+            bufferFile.writeText(jsonArray.toString())
         } catch (e: Exception) {
-            android.util.Log.e("AppNotificationListener", "Failed to save raw notification: ${e.message}", e)
+            android.util.Log.e("AppNotificationListener", "Buffer write error: ${e.message}")
+        }
+
+        // 2. React Native(filesDir/budget_app.db) 및 Android(databases/budget_app.db) 양쪽 SQLite에 모두 저장
+        val targetDbPaths = listOf(
+            File(filesDir, "budget_app.db"),
+            getDatabasePath("budget_app.db")
+        )
+
+        for (dbPath in targetDbPaths) {
+            try {
+                dbPath.parentFile?.mkdirs()
+                val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+                try { db.enableWriteAheadLogging() } catch (e: Exception) {}
+                db.execSQL("PRAGMA busy_timeout = 3000;")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS app_notifications_raw (" +
+                            "id TEXT PRIMARY KEY NOT NULL, " +
+                            "package_name TEXT NOT NULL, " +
+                            "title TEXT, " +
+                            "text TEXT, " +
+                            "big_text TEXT, " +
+                            "raw_content TEXT NOT NULL, " +
+                            "post_time TEXT NOT NULL, " +
+                            "created_at TEXT DEFAULT CURRENT_TIMESTAMP);"
+                )
+
+                db.execSQL(
+                    "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                    arrayOf(id, packageName, title, text, bigText, fullContent, postTimeStr)
+                )
+
+                db.execSQL("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days');")
+                db.close()
+            } catch (e: Exception) {
+                android.util.Log.e("AppNotificationListener", "SQLite write error on ${dbPath.absolutePath}: ${e.message}")
+            }
         }
     }
 
     companion object {
         private var instance: AppNotificationListener? = null
+
+        fun isServiceConnected(): Boolean {
+            return instance != null
+        }
 
         fun syncPushHistoryForDate(targetDateStr: String): Int {
             val listener = instance ?: return 0
@@ -109,7 +164,6 @@ class AppNotificationListener : NotificationListenerService() {
             try {
                 FinancialTextParser.loadExceptionsFromDb(listener)
 
-                // NotificationListenerService의 getActiveNotifications()를 통해 현재 스마트폰 상단바에 떠 있는 모든 알림 목록 읽기
                 val activeNotifs = listener.activeNotifications ?: return 0
 
                 val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -139,7 +193,7 @@ class AppNotificationListener : NotificationListenerService() {
                     val fullContent = "$title\n$text\n$bigText".trim()
 
                     if (fullContent.isNotBlank()) {
-                        // 수신함 결제 내역 실시간 동기화 실행 시 무조건 현재 떠 있는 모든 알림 목록을 읽어와 app_notifications_raw 저장소에 빠짐없이 보관
+                        // 수신함 결제 내역 실시간 동기화 실행 시 무조건 현재 떠 있는 모든 알림 목록을 보관
                         listener.saveRawNotification(
                             packageName,
                             title,
@@ -149,7 +203,7 @@ class AppNotificationListener : NotificationListenerService() {
                             postTime
                         )
 
-                        // 파싱 및 결제 이벤트 등록 (날짜 조건 매칭 시)
+                        // 파싱 및 결제 이벤트 등록
                         if (targetDateStr == "ALL" || postTime in startTime..endTime) {
                             val result = FinancialTextParser.parse(fullContent, postTime, "PUSH")
                             if (result.isPayment) {

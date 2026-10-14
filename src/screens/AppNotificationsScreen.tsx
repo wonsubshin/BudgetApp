@@ -9,6 +9,8 @@ import {
   Clipboard,
   Modal,
   ScrollView,
+  Platform,
+  Linking,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { appNotificationDao, AppNotificationRaw } from '../database/appNotificationDao';
@@ -24,9 +26,14 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<AppNotificationRaw | null>(null);
 
-  const loadNotifications = useCallback(() => {
+  const loadNotifications = useCallback(async () => {
     const list = appNotificationDao.getRecentNotifications();
     setNotifications(list);
+
+    try {
+      const updatedList = await appNotificationDao.syncNativeBufferToDb();
+      setNotifications(updatedList);
+    } catch (e) {}
   }, []);
 
   useEffect(() => {
@@ -151,6 +158,24 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
         </TouchableOpacity>
       </View>
 
+      <TouchableOpacity
+        style={styles.notifAccessBanner}
+        activeOpacity={0.7}
+        onPress={() => {
+          if (Platform.OS === 'android') {
+            try {
+              Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
+            } catch (e) {
+              // Ignore
+            }
+          }
+        }}
+      >
+        <Text style={styles.notifAccessBannerText}>
+          🔔 [필수 권한 설정] 스마트폰 '알림 접근 허용' 설정이 꺼져 있으면 앱 푸시 로그가 수집되지 않습니다. (터치하여 설정 상태 확인)
+        </Text>
+      </TouchableOpacity>
+
       <View style={styles.subBar}>
         <Text style={styles.noticeText}>
           ※ 수신된 앱 푸시 원문 전체는 30일간 자동 보관되며, 30일이 지나면 가장 오래된 기록부터 자동 삭제됩니다.
@@ -176,7 +201,7 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
           <View style={styles.emptyBox}>
             <Text style={styles.emptyText}>보관된 앱 푸시 알림 로그가 없습니다.</Text>
             <Text style={styles.emptySubText}>
-              카드사/금융 앱 알림이 도착하면 원문 내용이 이곳에 실시간 자동 보관됩니다.
+              상단의 [알림 접근 허용] 권한이 활성화되어 있으면 카드사/금융 앱 푸시 알림이 원문 그대로 실시간 수록됩니다.
             </Text>
           </View>
         }
@@ -317,6 +342,19 @@ const styles = StyleSheet.create({
     color: '#D32F2F',
     fontWeight: 'bold',
   },
+  notifAccessBanner: {
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FFE0B2',
+  },
+  notifAccessBannerText: {
+    fontSize: 11,
+    color: '#E65100',
+    fontWeight: '600',
+    lineHeight: 16,
+  },
   subBar: {
     backgroundColor: '#E3F2FD',
     paddingHorizontal: 16,
@@ -410,6 +448,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9E9E9E',
     marginTop: 6,
+    textAlign: 'center',
   },
 
   // 모달 스타일
