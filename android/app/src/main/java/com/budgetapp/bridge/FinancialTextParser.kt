@@ -141,8 +141,8 @@ object FinancialTextParser {
             }
         }
 
-        // 1. 카드사 및 승인 문구 체크 (카드사 + 승인/자동결제/결제/접수)
-        val hasKeyword = bodyToParse.contains("승인") || bodyToParse.contains("자동결제") || bodyToParse.contains("결제") || bodyToParse.contains("접수")
+        // 1. 카드사 및 승인/취소 문구 체크 (카드사 + 승인/자동결제/결제/접수/취소)
+        val hasKeyword = bodyToParse.contains("승인") || bodyToParse.contains("자동결제") || bodyToParse.contains("결제") || bodyToParse.contains("접수") || bodyToParse.contains("취소")
         val cardCompany = when {
             bodyToParse.contains("삼성") -> "삼성카드"
             bodyToParse.contains("현대") -> "현대카드"
@@ -217,7 +217,7 @@ object FinancialTextParser {
         var merchant = ""
 
         // 패턴 A: 날짜/시간 뒤에 오는 단어 (예: "10/13 11:55 주래등")
-        val lineWithTime = lines.find { it.contains("/") && !it.contains("접수") }
+        val lineWithTime = lines.find { it.contains("/") && !it.contains("접수") && !it.contains("취소") }
         if (lineWithTime != null) {
             val parts = lineWithTime.split("\\s+".toRegex())
             val candidate = parts.lastOrNull {
@@ -228,11 +228,11 @@ object FinancialTextParser {
             }
         }
 
-        // 패턴 B: 자동결제 10/12접수 패턴의 다음 줄 (예: "LGU+ 통신(452325)")
+        // 패턴 B: 자동결제 10/12접수/취소 패턴의 다음 줄 (예: "LGU+ 통신(452325)")
         if (merchant.isBlank()) {
             for (i in 0 until lines.size) {
                 val l = lines[i]
-                if (l.contains("자동결제") || l.contains("접수") || l.contains("승인")) {
+                if (l.contains("자동결제") || l.contains("접수") || l.contains("승인") || l.contains("취소")) {
                     if (i + 1 < lines.size) {
                         val nextLine = lines[i + 1]
                         if (!nextLine.contains("원") && !nextLine.contains("누적") && !nextLine.contains("/")) {
@@ -248,7 +248,7 @@ object FinancialTextParser {
         if (merchant.isBlank()) {
             val words = bodyToParse.split("\\s+".toRegex())
             merchant = words.lastOrNull {
-                it.isNotBlank() && !it.contains("원") && !it.contains("승인") && !it.contains("접수") && !it.contains("누적") && !it.contains("카드")
+                it.isNotBlank() && !it.contains("원") && !it.contains("승인") && !it.contains("접수") && !it.contains("취소") && !it.contains("누적") && !it.contains("카드")
             } ?: "카드 결제"
         }
 
@@ -259,11 +259,21 @@ object FinancialTextParser {
         }
         if (merchant.isBlank()) merchant = "카드 결제"
 
+        // 6. 결제 취소(승인취소, 결제취소 등)인 경우 금액을 음수(-amount)로 변환하고 사용처에 [취소] 표기
+        var finalAmount = amount
+        var finalMerchant = merchant
+        if (bodyToParse.contains("취소")) {
+            finalAmount = -Math.abs(amount)
+            if (!finalMerchant.startsWith("[취소]")) {
+                finalMerchant = "[취소] $finalMerchant"
+            }
+        }
+
         return ParsedPaymentResult(
             isPayment = true,
             cardCompany = cardCompany,
-            amount = amount,
-            merchant = merchant,
+            amount = finalAmount,
+            merchant = finalMerchant,
             dateStr = dateStr,
             createdAtStr = createdAtStr,
             installmentType = installmentType,
