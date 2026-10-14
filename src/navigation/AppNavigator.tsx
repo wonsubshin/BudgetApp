@@ -23,32 +23,6 @@ function MainTabContainer({ navigation }: any) {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-      {/* Top Header Bar */}
-      <View style={styles.topHeader}>
-        <Text style={styles.topHeaderTitle}>
-          {activeTab === 'CALENDAR'
-            ? '📅 가계부 달력'
-            : activeTab === 'STATS'
-            ? '📊 지출 통계'
-            : '⚙️ 환경 설정'}
-        </Text>
-        {activeTab !== 'SETTINGS' ? (
-          <TouchableOpacity
-            style={styles.headerSettingBtn}
-            onPress={() => setActiveTab('SETTINGS')}
-          >
-            <Text style={styles.headerSettingText}>⚙️ 설정</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={styles.headerSettingBtn}
-            onPress={() => setActiveTab('CALENDAR')}
-          >
-            <Text style={styles.headerSettingText}>✕ 닫기</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
       {/* Screen Content */}
       <View style={{ flex: 1 }}>
         {activeTab === 'CALENDAR' && (
@@ -189,32 +163,6 @@ export const AppNavigator = () => {
 };
 
 const styles = StyleSheet.create({
-  topHeader: {
-    height: 52,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEEEEE',
-  },
-  topHeaderTitle: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    color: '#212121',
-  },
-  headerSettingBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#F0F0F0',
-    borderRadius: 16,
-  },
-  headerSettingText: {
-    fontSize: 13,
-    color: '#333333',
-    fontWeight: '600',
-  },
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: 1,
