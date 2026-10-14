@@ -1,10 +1,12 @@
 package com.budgetapp.bridge
 
-import android.content.Context
 import android.content.ContentResolver
+import android.content.ContentValues
+import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import com.budgetapp.notification.AppNotificationListener
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -14,6 +16,7 @@ import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.WritableArray
 import com.facebook.react.bridge.WritableMap
 import java.io.File
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,22 +43,43 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun saveBackupFileToDownload(jsonContent: String, fileName: String, promise: Promise) {
         try {
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (!downloadsDir.exists()) {
-                downloadsDir.mkdirs()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10 (API 29) 이상: Scoped Storage 표준 MediaStore.Downloads API 사용
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+
+                val resolver = reactContext.contentResolver
+                val contentUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                val uri = resolver.insert(contentUri, contentValues)
+                    ?: throw IOException("Failed to create MediaStore record in Downloads")
+
+                resolver.openOutputStream(uri)?.use { outputStream ->
+                    outputStream.write(jsonContent.toByteArray(Charsets.UTF_8))
+                    outputStream.flush()
+                }
+
+                promise.resolve("Download/$fileName")
+            } else {
+                // Android 9 이하 레거시
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs()
+                }
+                val file = File(downloadsDir, fileName)
+                file.writeText(jsonContent, Charsets.UTF_8)
+
+                android.media.MediaScannerConnection.scanFile(
+                    reactContext,
+                    arrayOf(file.absolutePath),
+                    arrayOf("text/plain"),
+                    null
+                )
+
+                promise.resolve(file.absolutePath)
             }
-            val file = File(downloadsDir, fileName)
-            file.writeText(jsonContent, Charsets.UTF_8)
-
-            // 안드로이드 미디어 스캐너에 등록하여 내 파일(My Files) 앱의 다운로드 폴더에 즉시 노출
-            android.media.MediaScannerConnection.scanFile(
-                reactContext,
-                arrayOf(file.absolutePath),
-                arrayOf("text/plain"),
-                null
-            )
-
-            promise.resolve(file.absolutePath)
         } catch (e: Exception) {
             try {
                 val file = File(reactContext.externalCacheDir, fileName)
