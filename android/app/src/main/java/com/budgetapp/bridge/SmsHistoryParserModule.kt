@@ -62,6 +62,21 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     override fun onNewIntent(intent: Intent?) {}
 
     @ReactMethod
+    fun getAppNotificationsBuffer(promise: Promise) {
+        try {
+            val bufferFile = File(reactContext.filesDir, "app_notifications_buffer.json")
+            if (bufferFile.exists()) {
+                val jsonStr = bufferFile.readText(Charsets.UTF_8)
+                promise.resolve(jsonStr)
+            } else {
+                promise.resolve("[]")
+            }
+        } catch (e: Exception) {
+            promise.reject("BUFFER_READ_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
     fun pickBackupFileAndRead(promise: Promise) {
         val currentActivity = currentActivity
         if (currentActivity == null) {

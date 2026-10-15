@@ -15,6 +15,7 @@ import {
   Modal,
   ActivityIndicator,
   NativeModules,
+  PermissionsAndroid,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { setNickname, setNicknameCreatedAt, setMonthlyBudget } from '../storage/mmkv';
@@ -82,7 +83,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
   const [name, setName] = useState('');
   const [budgetStr, setBudgetStr] = useState('');
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
-  const [restoreJsonInput, setRestoreJsonInput] = useState('');
 
   // 프로그레스 바 상태
   const [isProcessing, setIsProcessing] = useState(false);
@@ -103,6 +103,23 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
   const handleGenerateRandomNickname = () => {
     const randomName = getRandomNickname();
     setName(randomName);
+  };
+
+  const requestSmsPermissionsIfNeeded = async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      try {
+        const granted = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.READ_SMS,
+          PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
+        ]);
+        const isReadGranted = granted[PermissionsAndroid.PERMISSIONS.READ_SMS] === PermissionsAndroid.RESULTS.GRANTED;
+        const isReceiveGranted = granted[PermissionsAndroid.PERMISSIONS.RECEIVE_SMS] === PermissionsAndroid.RESULTS.GRANTED;
+        return isReadGranted || isReceiveGranted;
+      } catch (err) {
+        return false;
+      }
+    }
+    return true;
   };
 
   // 백업 파일 업로드 복구 실행
@@ -132,9 +149,12 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
         }
 
         setProgressPercent(80);
-        setProgressMessage('3/4. 필수 승인 권한 상태 점검 중...');
+        setProgressMessage('3/4. 수신함 SMS 읽기 및 알림 권한 허가 요청 중...');
 
-        // 시스템 알림 권한 안내
+        // SMS 읽기 시스템 권한 팝업 요청
+        await requestSmsPermissionsIfNeeded();
+
+        // 시스템 알림 접근 권한 유도
         if (Platform.OS === 'android') {
           try {
             Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
@@ -159,42 +179,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
         Alert.alert('오류', e?.message || '파일을 읽는 중 오류가 발생했습니다.');
       }
     }
-  };
-
-  // 백업 텍스트 직접 수동 입력 복구 실행
-  const handleExecuteRestore = () => {
-    if (!restoreJsonInput.trim()) {
-      Alert.alert('알림', '복구할 백업 데이터 내용을 입력해 주세요.');
-      return;
-    }
-
-    setRestoreModalVisible(false);
-    setIsProcessing(true);
-    setProgressPercent(30);
-    setProgressMessage('1/3. 텍스트 백업 데이터 분석 중...');
-
-    const result = backupService.restoreFromBackupJson(restoreJsonInput.trim());
-    if (!result.success) {
-      setIsProcessing(false);
-      Alert.alert('복구 실패', result.message);
-      return;
-    }
-
-    setProgressPercent(80);
-    setProgressMessage('2/3. 시스템 알림 권한 설정 점검 중...');
-    if (Platform.OS === 'android') {
-      try {
-        Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
-      } catch (e) {}
-    }
-
-    setProgressPercent(100);
-    setProgressMessage('3/3. 데이터 복구 완료! 가계부 메인 화면으로 이동합니다.');
-
-    setTimeout(() => {
-      setIsProcessing(false);
-      onComplete();
-    }, 600);
   };
 
   const handleSave = async () => {
@@ -226,6 +210,9 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
 
     setProgressPercent(50);
     setProgressMessage('2/4. 수신함 카드 결제 내역(SMS/RCS) 실시간 분석 중...');
+
+    // 안드로이드 SMS 수신/읽기 권한 요청
+    await requestSmsPermissionsIfNeeded();
 
     try {
       await syncSmsHistoryForDate(todayStr);
@@ -331,7 +318,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
             delayPressIn={0}
             onPress={() => setRestoreModalVisible(true)}
           >
-            <Text style={styles.restoreBtnText}>📥 기존 백업 데이터/파일 불러오기 (복구)</Text>
+            <Text style={styles.restoreBtnText}>📥 기존 백업 파일 불러오기 (복구)</Text>
           </TouchableOpacity>
         </ScrollView>
       </TouchableWithoutFeedback>
@@ -345,9 +332,9 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>📥 백업 파일/텍스트 복구</Text>
+            <Text style={styles.modalTitle}>📥 백업 파일 복구</Text>
             <Text style={styles.modalSubText}>
-              Download 폴더의 백업 파일(backup_*.txt)을 업로드하여 바로 복구하시거나, 백업 텍스트를 직접 붙여넣으세요.
+              Download 폴더에 저장된 백업 파일(backup_*.txt)을 선택하여 가계부 데이터를 복구합니다.
             </Text>
 
             <TouchableOpacity
@@ -359,18 +346,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
               <Text style={styles.pickFileBtnText}>📁 백업 파일 업로드 선택 (backup_*.txt)</Text>
             </TouchableOpacity>
 
-            <Text style={styles.orText}>─ 또는 백업 텍스트 직접 붙여넣기 ─</Text>
-
-            <TextInput
-              style={styles.modalInput}
-              multiline
-              placeholder="여기에 백업 파일(JSON/TXT) 텍스트를 붙여넣으세요..."
-              placeholderTextColor="#9E9E9E"
-              value={restoreJsonInput}
-              onChangeText={setRestoreJsonInput}
-              disableFullscreenUI={true}
-            />
-
             <View style={styles.modalBtnRow}>
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: '#F5F5F5' }]}
@@ -379,15 +354,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
                 onPress={() => setRestoreModalVisible(false)}
               >
                 <Text style={{ color: '#666666', fontWeight: 'bold' }}>취소</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: '#FF9800' }]}
-                activeOpacity={0.7}
-                delayPressIn={0}
-                onPress={handleExecuteRestore}
-              >
-                <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>텍스트 복구</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -505,8 +471,8 @@ const styles = StyleSheet.create({
   modalContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 16,
-    maxHeight: '85%',
+    padding: 18,
+    maxHeight: '80%',
   },
   modalTitle: {
     fontSize: 16,
@@ -517,41 +483,24 @@ const styles = StyleSheet.create({
   modalSubText: {
     fontSize: 12,
     color: '#666666',
-    marginBottom: 12,
+    marginBottom: 16,
     lineHeight: 16,
   },
   pickFileBtn: {
     backgroundColor: '#2196F3',
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 14,
   },
   pickFileBtnText: {
     color: '#FFFFFF',
     fontWeight: 'bold',
-    fontSize: 13,
-  },
-  orText: {
-    fontSize: 11,
-    color: '#9E9E9E',
-    textAlign: 'center',
-    marginVertical: 6,
-  },
-  modalInput: {
-    backgroundColor: '#1E1E1E',
-    color: '#4CAF50',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 12,
-    fontFamily: 'monospace',
-    height: 140,
-    textAlignVertical: 'top',
+    fontSize: 14,
   },
   modalBtnRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 14,
+    marginTop: 8,
   },
   modalBtn: {
     flex: 1,
