@@ -264,6 +264,22 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
     currentYearMonth
   );
 
+  // 캘린더 날짜 셀 내의 커스텀 금액 텍스트 가독성 정제 함수
+  const formatCompactAmount = (amt: number): string => {
+    const abs = Math.abs(amt);
+    if (abs >= 100000000) {
+      return `${amt < 0 ? '-' : ''}${(abs / 100000000).toFixed(1)}억`;
+    }
+    if (abs >= 10000) {
+      const man = Math.floor(abs / 10000);
+      const remainder = abs % 10000;
+      if (remainder === 0) {
+        return `${amt < 0 ? '-' : ''}${man}만`;
+      }
+    }
+    return amt.toLocaleString();
+  };
+
   // 커스텀 날짜 셀 렌더링 (월간 뷰용) - 지출은 상단(1줄), 적금은 하단(2줄) 위치 고정
   const customDayComponent = ({ date, state }: any) => {
     if (!date) return null;
@@ -293,8 +309,13 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
         {/* 상단 1줄: 지출 고정 영역 (지출이 없을 경우 빈 줄 유지) */}
         <View style={styles.slotRow}>
           {expenseAmount !== 0 ? (
-            <Text style={[styles.amountText, { color }]} numberOfLines={1}>
-              {expenseAmount.toLocaleString()}
+            <Text
+              style={[styles.amountText, { color }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.65}
+            >
+              {formatCompactAmount(expenseAmount)}
             </Text>
           ) : (
             <Text style={[styles.amountText, { opacity: 0 }]}> </Text>
@@ -304,8 +325,13 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
         {/* 하단 2줄: 적금/저축 고정 영역 (적금이 없을 경우 빈 줄 유지) */}
         <View style={styles.slotRow}>
           {savingsAmount > 0 ? (
-            <Text style={[styles.amountText, { color: '#1565C0' }]} numberOfLines={1}>
-              🏦{savingsAmount.toLocaleString()}
+            <Text
+              style={[styles.amountText, { color: '#1565C0' }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit={true}
+              minimumFontScale={0.65}
+            >
+              🏦{formatCompactAmount(savingsAmount)}
             </Text>
           ) : (
             <Text style={[styles.amountText, { opacity: 0 }]}> </Text>
@@ -559,6 +585,8 @@ const styles = StyleSheet.create({
     height: 14,
     justifyContent: 'center',
     alignItems: 'center',
+    width: '100%',
+    paddingHorizontal: 1,
   },
   amountText: {
     fontSize: 10,
