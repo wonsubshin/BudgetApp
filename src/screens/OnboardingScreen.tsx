@@ -13,12 +13,16 @@ import {
   Keyboard,
   Linking,
   Modal,
+  ActivityIndicator,
+  NativeModules,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { setNickname, setNicknameCreatedAt, setMonthlyBudget } from '../storage/mmkv';
 import { syncSmsHistoryForDate } from '../services/smsHistoryService';
 import { backupService } from '../services/backupService';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
+
+const { SmsHistoryParserModule } = NativeModules;
 
 const ADJECTIVES = [
   '절약하는', '지갑닫은', '소비참는', '부자되는', '무지출',
@@ -80,6 +84,11 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
   const [restoreModalVisible, setRestoreModalVisible] = useState(false);
   const [restoreJsonInput, setRestoreJsonInput] = useState('');
 
+  // 프로그레스 바 상태
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [progressMessage, setProgressMessage] = useState('');
+
   const nameInputRef = useRef<TextInput>(null);
   const budgetInputRef = useRef<TextInput>(null);
 
@@ -96,21 +105,96 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
     setName(randomName);
   };
 
+  // 백업 파일 업로드 복구 실행
+  const handlePickFileAndRestore = async () => {
+    try {
+      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.pickBackupFileAndRead === 'function') {
+        setRestoreModalVisible(false);
+        setIsProcessing(true);
+        setProgressPercent(20);
+        setProgressMessage('1/4. 백업 파일(backup_*.txt)을 로드 중입니다...');
+
+        const fileContent: string = await SmsHistoryParserModule.pickBackupFileAndRead();
+        if (!fileContent || !fileContent.trim()) {
+          setIsProcessing(false);
+          Alert.alert('알림', '선택한 백업 파일에 데이터가 없습니다.');
+          return;
+        }
+
+        setProgressPercent(50);
+        setProgressMessage('2/4. 백업 데이터(거래 내역, 정기결제, 푸시로그) 복구 중...');
+
+        const result = backupService.restoreFromBackupJson(fileContent.trim());
+        if (!result.success) {
+          setIsProcessing(false);
+          Alert.alert('복구 실패', result.message);
+          return;
+        }
+
+        setProgressPercent(80);
+        setProgressMessage('3/4. 필수 승인 권한 상태 점검 중...');
+
+        // 시스템 알림 권한 안내
+        if (Platform.OS === 'android') {
+          try {
+            Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
+          } catch (e) {
+            // Ignore
+          }
+        }
+
+        setProgressPercent(100);
+        setProgressMessage('4/4. 데이터 복구 완료! 가계부 메인 화면으로 이동합니다.');
+
+        setTimeout(() => {
+          setIsProcessing(false);
+          onComplete();
+        }, 600);
+      } else {
+        Alert.alert('알림', '파일 탐색기를 열 수 없습니다.');
+      }
+    } catch (e: any) {
+      setIsProcessing(false);
+      if (e?.code !== 'PICK_CANCELLED') {
+        Alert.alert('오류', e?.message || '파일을 읽는 중 오류가 발생했습니다.');
+      }
+    }
+  };
+
+  // 백업 텍스트 직접 수동 입력 복구 실행
   const handleExecuteRestore = () => {
     if (!restoreJsonInput.trim()) {
-      Alert.alert('알림', '복구할 JSON 백업 데이터 내용을 입력해 주세요.');
+      Alert.alert('알림', '복구할 백업 데이터 내용을 입력해 주세요.');
       return;
     }
 
+    setRestoreModalVisible(false);
+    setIsProcessing(true);
+    setProgressPercent(30);
+    setProgressMessage('1/3. 텍스트 백업 데이터 분석 중...');
+
     const result = backupService.restoreFromBackupJson(restoreJsonInput.trim());
-    if (result.success) {
-      setRestoreModalVisible(false);
-      Alert.alert('복구 완료', '기존 백업 데이터가 정상 복구되었습니다!', [
-        { text: '확인', onPress: () => onComplete() },
-      ]);
-    } else {
+    if (!result.success) {
+      setIsProcessing(false);
       Alert.alert('복구 실패', result.message);
+      return;
     }
+
+    setProgressPercent(80);
+    setProgressMessage('2/3. 시스템 알림 권한 설정 점검 중...');
+    if (Platform.OS === 'android') {
+      try {
+        Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
+      } catch (e) {}
+    }
+
+    setProgressPercent(100);
+    setProgressMessage('3/3. 데이터 복구 완료! 가계부 메인 화면으로 이동합니다.');
+
+    setTimeout(() => {
+      setIsProcessing(false);
+      onComplete();
+    }, 600);
   };
 
   const handleSave = async () => {
@@ -131,45 +215,43 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
       return;
     }
 
+    setIsProcessing(true);
+    setProgressPercent(20);
+    setProgressMessage('1/4. 별명 및 목표 예산 정보를 저장하는 중...');
+
     const todayStr = dayjs().format('YYYY-MM-DD');
     setNickname(name.trim());
     setNicknameCreatedAt(todayStr);
     setMonthlyBudget(parsedBudget);
 
-    // 닉네임 설정일(오늘)의 카드 결제 SMS/푸시 내역 자동 분석 및 등록
+    setProgressPercent(50);
+    setProgressMessage('2/4. 수신함 카드 결제 내역(SMS/RCS) 실시간 분석 중...');
+
     try {
       await syncSmsHistoryForDate(todayStr);
     } catch (e) {
       console.warn('SMS sync error:', e);
     }
 
-    // 닉네임 설정 완료 후 즉시 앱 푸시 알림 접근 권한 승인 안내 유도
+    setProgressPercent(80);
+    setProgressMessage('3/4. 카드 결제 앱 푸시 알림 수신 접근 권한 승인 확인 중...');
+
+    // 닉네임 설정 완료 후 즉시 앱 푸시 알림 접근 권한 승인 유도
     if (Platform.OS === 'android') {
-      Alert.alert(
-        '🔔 알림 접근 권한 승인 안내',
-        '카드 결제 앱 푸시 알림을 실시간으로 파싱하여 예산가계부에 자동 반영하려면 [알림 접근 허용] 권한이 필요합니다. 지금 설정 화면으로 이동하시겠습니까?',
-        [
-          {
-            text: '나중에',
-            style: 'cancel',
-            onPress: () => onComplete(),
-          },
-          {
-            text: '설정으로 이동',
-            onPress: () => {
-              try {
-                Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
-              } catch (e) {
-                // Ignore
-              }
-              onComplete();
-            },
-          },
-        ]
-      );
-    } else {
-      onComplete();
+      try {
+        Linking.sendIntent('android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS');
+      } catch (e) {
+        // Ignore
+      }
     }
+
+    setProgressPercent(100);
+    setProgressMessage('4/4. 설정을 성공적으로 완료했습니다! 100% 가계부로 이동합니다.');
+
+    setTimeout(() => {
+      setIsProcessing(false);
+      onComplete();
+    }, 600);
   };
 
   return (
@@ -249,7 +331,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
             delayPressIn={0}
             onPress={() => setRestoreModalVisible(true)}
           >
-            <Text style={styles.restoreBtnText}>📥 기존 백업 데이터 불러오기 (복구)</Text>
+            <Text style={styles.restoreBtnText}>📥 기존 백업 데이터/파일 불러오기 (복구)</Text>
           </TouchableOpacity>
         </ScrollView>
       </TouchableWithoutFeedback>
@@ -263,15 +345,26 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>📥 백업 데이터 복구</Text>
+            <Text style={styles.modalTitle}>📥 백업 파일/텍스트 복구</Text>
             <Text style={styles.modalSubText}>
-              기존 디바이스에서 백업받은 JSON 백업 데이터를 아래 입력창에 붙여넣어 주세요.
+              Download 폴더의 백업 파일(backup_*.txt)을 업로드하여 바로 복구하시거나, 백업 텍스트를 직접 붙여넣으세요.
             </Text>
+
+            <TouchableOpacity
+              style={styles.pickFileBtn}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={handlePickFileAndRestore}
+            >
+              <Text style={styles.pickFileBtnText}>📁 백업 파일 업로드 선택 (backup_*.txt)</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.orText}>─ 또는 백업 텍스트 직접 붙여넣기 ─</Text>
 
             <TextInput
               style={styles.modalInput}
               multiline
-              placeholder="여기에 JSON 백업 데이터를 붙여넣으세요..."
+              placeholder="여기에 백업 파일(JSON/TXT) 텍스트를 붙여넣으세요..."
               placeholderTextColor="#9E9E9E"
               value={restoreJsonInput}
               onChangeText={setRestoreJsonInput}
@@ -294,9 +387,27 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
                 delayPressIn={0}
                 onPress={handleExecuteRestore}
               >
-                <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>복구 실행</Text>
+                <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>텍스트 복구</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 작업 진행 프로그레스 바 모달 (0% ~ 100%) */}
+      <Modal visible={isProcessing} transparent animationType="fade">
+        <View style={styles.progressOverlay}>
+          <View style={styles.progressCard}>
+            <ActivityIndicator size="large" color="#2196F3" style={{ marginBottom: 12 }} />
+            <Text style={styles.progressTitle}>작업 처리 중입니다...</Text>
+            <Text style={styles.progressMsgText}>{progressMessage}</Text>
+
+            {/* 트랙 및 100% 채움 바 */}
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+            </View>
+
+            <Text style={styles.progressPercentText}>{progressPercent}% 완료</Text>
           </View>
         </View>
       </Modal>
@@ -395,7 +506,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   modalTitle: {
     fontSize: 16,
@@ -407,6 +518,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666666',
     marginBottom: 12,
+    lineHeight: 16,
+  },
+  pickFileBtn: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  pickFileBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  orText: {
+    fontSize: 11,
+    color: '#9E9E9E',
+    textAlign: 'center',
+    marginVertical: 6,
   },
   modalInput: {
     backgroundColor: '#1E1E1E',
@@ -415,7 +545,7 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 12,
     fontFamily: 'monospace',
-    height: 220,
+    height: 140,
     textAlignVertical: 'top',
   },
   modalBtnRow: {
@@ -428,5 +558,49 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
+  },
+  /* 프로그레스 바 스타일 */
+  progressOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  progressCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 24,
+    width: '100%',
+    alignItems: 'center',
+  },
+  progressTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#212121',
+    marginBottom: 8,
+  },
+  progressMsgText: {
+    fontSize: 13,
+    color: '#1565C0',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  progressTrack: {
+    width: '100%',
+    height: 10,
+    backgroundColor: '#E0E0E0',
+    borderRadius: 5,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#2196F3',
+  },
+  progressPercentText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#2196F3',
   },
 });

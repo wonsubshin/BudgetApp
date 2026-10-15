@@ -115,6 +115,15 @@ export const transactionDao = {
     const db = getDb();
     const trimmed = keyword.trim();
     if (!trimmed) return 0;
+
+    // 해당 키워드의 applySms가 false인 경우 (문자는 허용) DB에서 삭제하지 않음
+    const exceptions = parseExceptionDao.getAllExceptions();
+    const targetRule = exceptions.find((e) => e.keyword === trimmed);
+    if (targetRule && !targetRule.applySms) {
+      console.log(`⚠️ applySms가 false인 키워드('${trimmed}')는 DB 이력 삭제 스킵`);
+      return 0;
+    }
+
     try {
       const res = db.execute('DELETE FROM transactions WHERE merchant LIKE ? OR card_company LIKE ?;', [
         `%${trimmed}%`,

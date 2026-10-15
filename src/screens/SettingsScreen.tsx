@@ -10,8 +10,8 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
-  Clipboard,
   Modal,
+  NativeModules,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { useFocusEffect } from '@react-navigation/native';
@@ -30,6 +30,8 @@ import { backupService } from '../services/backupService';
 import { RecurringRuleModal } from '../components/settings/RecurringRuleModal';
 import { SmsSyncHistoryModal } from '../components/settings/SmsSyncHistoryModal';
 import { formatNumberWithComma, parseNumberFromComma } from '../utils/budgetUtils';
+
+const { SmsHistoryParserModule } = NativeModules;
 
 interface SettingsScreenProps {
   navigation?: any;
@@ -153,7 +155,36 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // JSON/TXT 백업 데이터 복구 실행
+  // 탐색기에서 백업 파일 선택 및 자동 업로드 복구
+  const handlePickFileAndRestore = async () => {
+    try {
+      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.pickBackupFileAndRead === 'function') {
+        const fileContent: string = await SmsHistoryParserModule.pickBackupFileAndRead();
+        if (!fileContent || !fileContent.trim()) {
+          Alert.alert('알림', '선택된 백업 파일에 데이터가 없습니다.');
+          return;
+        }
+
+        const result = backupService.restoreFromBackupJson(fileContent.trim());
+        if (result.success) {
+          setRestoreModalVisible(false);
+          setRestoreJsonInput('');
+          loadSettingsData();
+          Alert.alert('복구 성공', result.message);
+        } else {
+          Alert.alert('복구 실패', result.message);
+        }
+      } else {
+        Alert.alert('알림', '파일 탐색기를 열 수 없습니다.');
+      }
+    } catch (e: any) {
+      if (e?.code !== 'PICK_CANCELLED') {
+        Alert.alert('오류', e?.message || '파일을 읽는 중 오류가 발생했습니다.');
+      }
+    }
+  };
+
+  // JSON/TXT 백업 데이터 수동 텍스트 복구 실행
   const handleExecuteRestore = () => {
     if (!restoreJsonInput.trim()) {
       Alert.alert('알림', '복구할 백업 파일(JSON/TXT)의 데이터 내용을 입력하거나 붙여넣어 주세요.');
@@ -554,8 +585,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>📥 백업 파일/텍스트 복구</Text>
             <Text style={styles.modalSubText}>
-              백업받은 TXT/JSON 백업 파일의 텍스트 전체를 아래 입력창에 붙여넣고 [복구 실행] 버튼을 눌러주세요.
+              Download 폴더의 백업 파일(backup_*.txt)을 선택하여 바로 업로드 복구하시거나, 백업 텍스트를 직접 붙여넣어 복구하세요.
             </Text>
+
+            <TouchableOpacity
+              style={styles.pickFileBtn}
+              activeOpacity={0.7}
+              delayPressIn={0}
+              onPress={handlePickFileAndRestore}
+            >
+              <Text style={styles.pickFileBtnText}>📁 백업 파일 업로드 선택 (backup_*.txt)</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.orText}>─ 또는 백업 텍스트 직접 붙여넣기 ─</Text>
 
             <TextInput
               style={styles.modalInput}
@@ -583,7 +625,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 delayPressIn={0}
                 onPress={handleExecuteRestore}
               >
-                <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>복구 실행</Text>
+                <Text style={{ color: '#FFFFFF', fontWeight: 'bold' }}>텍스트 복구</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -770,7 +812,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   modalTitle: {
     fontSize: 16,
@@ -782,6 +824,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666666',
     marginBottom: 12,
+    lineHeight: 16,
+  },
+  pickFileBtn: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  pickFileBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  orText: {
+    fontSize: 11,
+    color: '#9E9E9E',
+    textAlign: 'center',
+    marginVertical: 6,
   },
   modalInput: {
     backgroundColor: '#1E1E1E',
@@ -790,7 +851,7 @@ const styles = StyleSheet.create({
     padding: 12,
     fontSize: 12,
     fontFamily: 'monospace',
-    height: 220,
+    height: 140,
     textAlignVertical: 'top',
   },
   modalBtnRow: {

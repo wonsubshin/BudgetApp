@@ -1,13 +1,16 @@
 package com.budgetapp.bridge
 
+import android.app.Activity
 import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.budgetapp.notification.AppNotificationListener
+import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -22,10 +25,64 @@ import java.util.Date
 import java.util.Locale
 
 class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) :
-    ReactContextBaseJavaModule(reactContext) {
+    ReactContextBaseJavaModule(reactContext), ActivityEventListener {
+
+    private var filePickerPromise: Promise? = null
+    private val PICK_FILE_REQUEST_CODE = 9988
+
+    init {
+        reactContext.addActivityEventListener(this)
+    }
 
     override fun getName(): String {
         return "SmsHistoryParserModule"
+    }
+
+    override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == PICK_FILE_REQUEST_CODE) {
+            val promise = filePickerPromise ?: return
+            filePickerPromise = null
+
+            if (resultCode == Activity.RESULT_OK && data?.data != null) {
+                try {
+                    val uri: Uri = data.data!!
+                    val contentResolver: ContentResolver = reactContext.contentResolver
+                    val inputStream = contentResolver.openInputStream(uri)
+                    val textContent = inputStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                    promise.resolve(textContent)
+                } catch (e: Exception) {
+                    promise.reject("FILE_READ_ERROR", "파일을 읽는 중 오류가 발생했습니다: ${e.message}", e)
+                }
+            } else {
+                promise.reject("PICK_CANCELLED", "파일 선택이 취소되었습니다.")
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {}
+
+    @ReactMethod
+    fun pickBackupFileAndRead(promise: Promise) {
+        val currentActivity = currentActivity
+        if (currentActivity == null) {
+            promise.reject("ACTIVITY_NULL", "화면 상태를 찾을 수 없습니다.")
+            return
+        }
+
+        filePickerPromise = promise
+        try {
+            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                type = "*/*"
+                addCategory(Intent.CATEGORY_OPENABLE)
+            }
+            currentActivity.startActivityForResult(
+                Intent.createChooser(intent, "백업 파일 선택 (backup_*.txt)"),
+                PICK_FILE_REQUEST_CODE
+            )
+        } catch (e: Exception) {
+            filePickerPromise = null
+            promise.reject("PICKER_ERROR", e.message, e)
+        }
     }
 
     @ReactMethod
@@ -553,14 +610,8 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
             }
 
             // 푸시 알림 히스토리 분석
-            val isListenerConnected = AppNotificationListener.isServiceConnected()
-            logBuilder.append("\nNotificationListenerService Connected: ").append(isListenerConnected.toString()).append("\n")
-            if (!isListenerConnected) {
-                logBuilder.append("(!) 알림 리스너 서비스가 아직 활성화되지 않았습니다. 안드로이드 설정에서 '알림 접근 권한'이 예산가계부에 허용되어 있는지 확인해 주세요.\n")
-            }
-
             val pushCount = AppNotificationListener.syncPushHistoryForDate(targetDateStr)
-            logBuilder.append("Push Notification Sync Count: ").append(pushCount.toString()).append("\n")
+            logBuilder.append("\nPush Notification Sync Count: ").append(pushCount.toString()).append("\n")
             logBuilder.append("Total Parsed Card Transactions: ").append((parsedCount + pushCount).toString()).append("\n")
             logBuilder.append("=========================================\n")
 
@@ -580,20 +631,5 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun syncSmsHistoryForDate(targetDateStr: String, promise: Promise) {
         syncSmsHistoryWithLog(targetDateStr, promise)
-    }
-
-    @ReactMethod
-    fun getAppNotificationsBuffer(promise: Promise) {
-        try {
-            val bufferFile = File(reactContext.filesDir, "app_notifications_buffer.json")
-            if (bufferFile.exists()) {
-                val jsonStr = bufferFile.readText(Charsets.UTF_8)
-                promise.resolve(jsonStr)
-            } else {
-                promise.resolve("[]")
-            }
-        } catch (e: Exception) {
-            promise.resolve("[]")
-        }
     }
 }

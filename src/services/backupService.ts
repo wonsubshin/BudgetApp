@@ -1,4 +1,4 @@
-import { NativeModules, Clipboard, Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 import dayjs from 'dayjs';
 import {
   getNickname,
@@ -16,7 +16,9 @@ import { transactionDao } from '../database/transactionDao';
 import { recurringDao } from '../database/recurringDao';
 import { holidayDao } from '../database/holidayDao';
 import { parseExceptionDao } from '../database/parseExceptionDao';
+import { appNotificationDao, AppNotificationRaw } from '../database/appNotificationDao';
 import { Transaction, RecurringRule, Holiday } from '../types/budget';
+import { getDb } from '../database/db';
 
 const { SmsHistoryParserModule } = NativeModules;
 
@@ -34,6 +36,7 @@ export interface BudgetAppBackupData {
   customHolidays: Holiday[];
   parseExceptions: { keyword: string; applyPush: boolean; applySms: boolean }[];
   manualInstallments: { [yearMonth: string]: number };
+  rawAppNotifications?: AppNotificationRaw[];
 }
 
 export const backupService = {
@@ -54,6 +57,7 @@ export const backupService = {
     const recurringRules = recurringDao.getAllRecurringRules();
     const customHolidays = holidayDao.getAllCustomHolidays();
     const parseExceptions = parseExceptionDao.getAllExceptions();
+    const rawAppNotifications = appNotificationDao.getRecentNotifications();
 
     // 최근 24개월 수동 입력 할부금 수집
     const manualInstallments: { [yearMonth: string]: number } = {};
@@ -84,6 +88,7 @@ export const backupService = {
         applySms: e.applySms,
       })),
       manualInstallments,
+      rawAppNotifications,
     };
 
     return JSON.stringify(backupObj, null, 2);
@@ -93,10 +98,7 @@ export const backupService = {
     const jsonString = this.generateBackupJson();
     const fileName = `backup_${dayjs().format('YYYYMMDDHHmmss')}.txt`;
 
-    // 1. 클립보드 복사 지원
-    Clipboard.setString(jsonString);
-
-    // 2. 안드로이드 물리 스마트폰 Download 공개 디렉토리에 실제 backup_YYYYMMDDhhmmss.txt 파일 저장
+    // 안드로이드 물리 스마트폰 Download 공개 디렉토리에 실제 backup_YYYYMMDDhhmmss.txt 파일만 저장 (클립보드 복사는 제거)
     if (SmsHistoryParserModule && typeof SmsHistoryParserModule.saveBackupFileToDownload === 'function') {
       try {
         const savedPath = await SmsHistoryParserModule.saveBackupFileToDownload(jsonString, fileName);
@@ -147,7 +149,30 @@ export const backupService = {
         });
       }
 
-      // 4. 정기 결제 내역 복구
+      // 4. 앱 푸시 알림 로그 복구
+      if (Array.isArray(data.rawAppNotifications)) {
+        const db = getDb();
+        data.rawAppNotifications.forEach((n) => {
+          try {
+            db.execute(
+              'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time) VALUES (?, ?, ?, ?, ?, ?, ?);',
+              [
+                n.id || `${Date.now()}_${Math.random()}`,
+                n.packageName || '',
+                n.title || '',
+                n.text || '',
+                n.bigText || '',
+                n.rawContent || '',
+                n.postTime || '',
+              ]
+            );
+          } catch (e) {
+            // Ignore
+          }
+        });
+      }
+
+      // 5. 정기 결제 내역 복구
       if (Array.isArray(data.recurringRules)) {
         data.recurringRules.forEach((rule) => {
           try {
@@ -158,7 +183,7 @@ export const backupService = {
         });
       }
 
-      // 5. 커스텀 공휴일 복구
+      // 6. 커스텀 공휴일 복구
       if (Array.isArray(data.customHolidays)) {
         data.customHolidays.forEach((h) => {
           try {
@@ -169,17 +194,17 @@ export const backupService = {
         });
       }
 
-      // 6. 수동 입력 할부금 복구
+      // 7. 수동 입력 할부금 복구
       if (data.manualInstallments && typeof data.manualInstallments === 'object') {
         Object.keys(data.manualInstallments).forEach((ym) => {
           setManualInstallment(ym, data.manualInstallments[ym]);
         });
       }
 
-      // 7. 복구 완료 후 applySms가 true인 진짜 파싱 예외 단어에 대해서만 정제 삭제 실행 (네이버페이는 보존)
+      // 8. 복구 완료 후 applySms가 true인 진짜 파싱 예외 단어에 대해서만 정제 삭제 실행 (네이버페이는 보존)
       transactionDao.purgeAllExceptionMatchedTransactions();
 
-      return { success: true, message: '백업 데이터가 성공적으로 완벽 복구되었습니다!' };
+      return { success: true, message: '백업 데이터(거래 내역, 정기결제, 앱푸시로그 등)가 완벽 복구되었습니다!' };
     } catch (e: any) {
       return { success: false, message: `복구 중 오류가 발생했습니다: ${e?.message || e}` };
     }
