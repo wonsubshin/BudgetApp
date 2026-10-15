@@ -264,7 +264,7 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
     currentYearMonth
   );
 
-  // 커스텀 날짜 셀 렌더링 (월간 뷰용)
+  // 커스텀 날짜 셀 렌더링 (월간 뷰용) - 지출은 상단(1줄), 적금은 하단(2줄) 위치 고정
   const customDayComponent = ({ date, state }: any) => {
     if (!date) return null;
     const dateStr = date.dateString;
@@ -290,16 +290,27 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
           {date.day}
         </Text>
 
-        {expenseAmount > 0 && (
-          <Text style={[styles.amountText, { color }]}>
-            {expenseAmount.toLocaleString()}
-          </Text>
-        )}
-        {savingsAmount > 0 && (
-          <Text style={[styles.amountText, { color: '#1565C0' }]}>
-            🏦{savingsAmount.toLocaleString()}
-          </Text>
-        )}
+        {/* 상단 1줄: 지출 고정 영역 (지출이 없을 경우 빈 줄 유지) */}
+        <View style={styles.slotRow}>
+          {expenseAmount !== 0 ? (
+            <Text style={[styles.amountText, { color }]} numberOfLines={1}>
+              {expenseAmount.toLocaleString()}
+            </Text>
+          ) : (
+            <Text style={[styles.amountText, { opacity: 0 }]}> </Text>
+          )}
+        </View>
+
+        {/* 하단 2줄: 적금/저축 고정 영역 (적금이 없을 경우 빈 줄 유지) */}
+        <View style={styles.slotRow}>
+          {savingsAmount > 0 ? (
+            <Text style={[styles.amountText, { color: '#1565C0' }]} numberOfLines={1}>
+              🏦{savingsAmount.toLocaleString()}
+            </Text>
+          ) : (
+            <Text style={[styles.amountText, { opacity: 0 }]}> </Text>
+          )}
+        </View>
       </TouchableOpacity>
     );
   };
@@ -519,10 +530,10 @@ const styles = StyleSheet.create({
   },
   dayCell: {
     width: 44,
-    height: 48,
+    height: 52,
     alignItems: 'center',
     justifyContent: 'flex-start',
-    paddingTop: 4,
+    paddingTop: 2,
   },
   todayCell: {
     backgroundColor: '#E3F2FD',
@@ -544,10 +555,14 @@ const styles = StyleSheet.create({
   disabledText: {
     color: '#BDBDBD',
   },
+  slotRow: {
+    height: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   amountText: {
     fontSize: 10,
     fontWeight: 'bold',
-    marginTop: 1,
   },
   installmentSummaryCard: {
     margin: 16,
