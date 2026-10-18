@@ -11,6 +11,7 @@ import {
   ScrollView,
   Platform,
   Linking,
+  TextInput,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { appNotificationDao, AppNotificationRaw } from '../database/appNotificationDao';
@@ -24,6 +25,7 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
 }) => {
   const [notifications, setNotifications] = useState<AppNotificationRaw[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchKeyword, setSearchKeyword] = useState('');
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<AppNotificationRaw | null>(null);
 
@@ -56,13 +58,18 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
     Alert.alert('복사 완료 📋', '앱 푸시 원문 내용이 클립보드에 복사되었습니다.');
   };
 
+  const handleToggleBookmark = (id: string, isBookmarked: boolean) => {
+    appNotificationDao.toggleBookmark(id, isBookmarked);
+    loadNotifications();
+  };
+
   const handleDelete = (id: string) => {
     appNotificationDao.deleteNotification(id);
     loadNotifications();
   };
 
   const handleClearAll = () => {
-    Alert.alert('전체 삭제', '저장된 모든 앱 푸시 로그를 삭제하시겠습니까?', [
+    Alert.alert('전체 삭제', '보관(📌)된 항목을 제외한 모든 일반 푸시 로그를 삭제하시겠습니까?', [
       { text: '취소', style: 'cancel' },
       {
         text: '삭제',
@@ -75,14 +82,27 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
     ]);
   };
 
-  const totalPages = Math.ceil(notifications.length / pageSize) || 1;
-  const paginatedNotifications = notifications.slice(
+  // 검색어 필터링 적용
+  const filteredNotifications = notifications.filter((n) => {
+    if (!searchKeyword.trim()) return true;
+    const kw = searchKeyword.trim().toLowerCase();
+    return (
+      (n.rawContent && n.rawContent.toLowerCase().includes(kw)) ||
+      (n.title && n.title.toLowerCase().includes(kw)) ||
+      (n.text && n.text.toLowerCase().includes(kw)) ||
+      (n.packageName && n.packageName.toLowerCase().includes(kw))
+    );
+  });
+
+  const totalPages = Math.ceil(filteredNotifications.length / pageSize) || 1;
+  const paginatedNotifications = filteredNotifications.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   );
 
   const renderHeader = () => (
     <View style={styles.tableHeader}>
+      <Text style={[styles.th, { flex: 0.9 }]}>보관</Text>
       <Text style={[styles.th, { flex: 1.1 }]}>수신 시각</Text>
       <Text style={[styles.th, { flex: 1.1 }]}>패키지/제목</Text>
       <Text style={[styles.th, { flex: 2.1 }]}>원문 내용 (터치 시 상세)</Text>
@@ -92,21 +112,38 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
 
   const renderItem = ({ item }: { item: AppNotificationRaw }) => (
     <TouchableOpacity
-      style={styles.tableRow}
+      style={[styles.tableRow, item.isBookmarked && styles.bookmarkedRow]}
       activeOpacity={0.7}
       delayPressIn={0}
       onPress={() => handleOpenDetail(item)}
     >
+      <TouchableOpacity
+        style={[styles.bookmarkBtn, { flex: 0.9 }]}
+        activeOpacity={0.7}
+        delayPressIn={0}
+        onPress={(e) => {
+          e.stopPropagation?.();
+          handleToggleBookmark(item.id, !item.isBookmarked);
+        }}
+      >
+        <Text style={[styles.bookmarkBtnText, item.isBookmarked && styles.bookmarkedBtnText]}>
+          {item.isBookmarked ? '📌 보관됨' : '☐ 보관'}
+        </Text>
+      </TouchableOpacity>
+
       <Text style={[styles.tdTime, { flex: 1.1 }]}>{item.postTime}</Text>
+
       <View style={{ flex: 1.1 }}>
         <Text style={styles.tdPkg}>{item.packageName.split('.').pop() || item.packageName}</Text>
         <Text style={styles.tdTitle} numberOfLines={1}>
           {item.title || '(제목 없음)'}
         </Text>
       </View>
+
       <Text style={[styles.tdContent, { flex: 2.1 }]} numberOfLines={3}>
         {item.rawContent}
       </Text>
+
       <TouchableOpacity
         style={[styles.deleteBtn, { flex: 0.6 }]}
         activeOpacity={0.7}
@@ -163,9 +200,34 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
         </Text>
       </TouchableOpacity>
 
-      <View style={styles.subBar}>
+      {/* 실시간 검색창 영역 */}
+      <View style={styles.searchBarBox}>
+        <View style={styles.searchBarInputRow}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="🔍 알림 내용 또는 앱 명칭 검색..."
+            placeholderTextColor="#9E9E9E"
+            value={searchKeyword}
+            onChangeText={(text) => {
+              setSearchKeyword(text);
+              setCurrentPage(1);
+            }}
+            disableFullscreenUI={true}
+          />
+          {searchKeyword.length > 0 && (
+            <TouchableOpacity
+              style={styles.searchClearBtn}
+              onPress={() => {
+                setSearchKeyword('');
+                setCurrentPage(1);
+              }}
+            >
+              <Text style={styles.searchClearBtnText}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <Text style={styles.noticeText}>
-          ※ 수신된 앱 푸시 원문 전체는 30일간 자동 보관되며, 30일이 지나면 가장 오래된 기록부터 자동 삭제됩니다.
+          ※ [📌 보관]에 체크된 항목은 전체 비우기 및 30일 삭제에서 제외되어 영구 보관됩니다. (검색 {filteredNotifications.length}건)
         </Text>
       </View>
 
@@ -178,7 +240,9 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <View style={styles.emptyBox}>
-              <Text style={styles.emptyText}>보관된 앱 푸시 알림 로그가 없습니다.</Text>
+              <Text style={styles.emptyText}>
+                {searchKeyword ? `'${searchKeyword}' 검색 결과가 없습니다.` : '보관된 앱 푸시 알림 로그가 없습니다.'}
+              </Text>
               <Text style={styles.emptySubText}>
                 상단의 [알림 접근 허용] 권한이 활성화되어 있으면 카드사/금융 앱 푸시 알림이 원문 그대로 실시간 수록됩니다.
               </Text>
@@ -199,7 +263,7 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
           </TouchableOpacity>
 
           <Text style={styles.pageInfoText}>
-            {currentPage} / {totalPages} 페이지 (총 {notifications.length}건)
+            {currentPage} / {totalPages} 페이지 (총 {filteredNotifications.length}건)
           </Text>
 
           <TouchableOpacity
@@ -239,6 +303,12 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
                   <View style={styles.metaRow}>
                     <Text style={styles.metaLabel}>수신 일시</Text>
                     <Text style={styles.metaValue}>{selectedNotification.postTime}</Text>
+                  </View>
+                  <View style={styles.metaRow}>
+                    <Text style={styles.metaLabel}>보관 상태</Text>
+                    <Text style={[styles.metaValue, selectedNotification.isBookmarked ? { color: '#E65100', fontWeight: 'bold' } : { color: '#757575' }]}>
+                      {selectedNotification.isBookmarked ? '📌 영구 보관 중' : '☐ 일반 (30일 보관)'}
+                    </Text>
                   </View>
                   <View style={styles.metaRow}>
                     <Text style={styles.metaLabel}>발신 앱</Text>
@@ -287,13 +357,21 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
             )}
 
             <View style={styles.modalBtnRow}>
-              <TouchableOpacity
-                style={[styles.modalActionBtn, styles.modalCopyBtn]}
-                activeOpacity={0.7}
-                onPress={handleCopySingleRaw}
-              >
-                <Text style={styles.modalCopyBtnText}>📋 원문 복사하기</Text>
-              </TouchableOpacity>
+              {selectedNotification && (
+                <TouchableOpacity
+                  style={[styles.modalActionBtn, selectedNotification.isBookmarked ? styles.modalUnbookmarkBtn : styles.modalBookmarkBtn]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    const next = !selectedNotification.isBookmarked;
+                    handleToggleBookmark(selectedNotification.id, next);
+                    setSelectedNotification({ ...selectedNotification, isBookmarked: next });
+                  }}
+                >
+                  <Text style={selectedNotification.isBookmarked ? styles.modalUnbookmarkBtnText : styles.modalBookmarkBtnText}>
+                    {selectedNotification.isBookmarked ? '📌 보관 해제' : '📌 영구 보관 설정'}
+                  </Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={[styles.modalActionBtn, styles.modalCloseBtn]}
                 activeOpacity={0.7}
@@ -362,10 +440,34 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 16,
   },
-  subBar: {
+  searchBarBox: {
     backgroundColor: '#E3F2FD',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingVertical: 10,
+    gap: 6,
+  },
+  searchBarInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#90CAF9',
+    paddingHorizontal: 10,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 6,
+    fontSize: 13,
+    color: '#212121',
+  },
+  searchClearBtn: {
+    padding: 4,
+  },
+  searchClearBtnText: {
+    fontSize: 14,
+    color: '#757575',
+    fontWeight: 'bold',
   },
   noticeText: {
     fontSize: 11,
@@ -379,7 +481,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#424242',
     paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     borderRadius: 6,
     marginBottom: 6,
   },
@@ -393,10 +495,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
     paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     borderRadius: 6,
     marginBottom: 6,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#EEEEEE',
+  },
+  bookmarkedRow: {
+    backgroundColor: '#FFF8E1',
+    borderColor: '#FFE082',
+  },
+  bookmarkBtn: {
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bookmarkBtnText: {
+    fontSize: 11,
+    color: '#757575',
+  },
+  bookmarkedBtnText: {
+    color: '#E65100',
+    fontWeight: 'bold',
   },
   tdTime: {
     fontSize: 11,
@@ -590,15 +711,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalCopyBtn: {
-    backgroundColor: '#E3F2FD',
+  modalBookmarkBtn: {
+    backgroundColor: '#FFF3E0',
     borderWidth: 1,
-    borderColor: '#90CAF9',
+    borderColor: '#FFB74D',
   },
-  modalCopyBtnText: {
+  modalBookmarkBtnText: {
     fontSize: 13,
     fontWeight: 'bold',
-    color: '#1565C0',
+    color: '#E65100',
+  },
+  modalUnbookmarkBtn: {
+    backgroundColor: '#ECEFF1',
+    borderWidth: 1,
+    borderColor: '#CFD8DC',
+  },
+  modalUnbookmarkBtnText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#546E7A',
   },
   modalCloseBtn: {
     backgroundColor: '#2196F3',

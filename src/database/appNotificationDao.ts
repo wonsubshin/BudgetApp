@@ -11,6 +11,7 @@ export interface AppNotificationRaw {
   bigText: string;
   rawContent: string;
   postTime: string;
+  isBookmarked: boolean;
   createdAt?: string;
 }
 
@@ -28,21 +29,26 @@ export const appNotificationDao = {
           big_text TEXT,
           raw_content TEXT NOT NULL,
           post_time TEXT NOT NULL,
+          is_bookmarked BOOLEAN DEFAULT 0,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
       `);
     } catch (e) {}
 
-    // 1달 이상 된 오래된 푸시 알림 자동 청소
     try {
-      db.execute("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days');");
+      db.execute('ALTER TABLE app_notifications_raw ADD COLUMN is_bookmarked BOOLEAN DEFAULT 0;');
+    } catch (e) {}
+
+    // 1달 이상 된 오래된 푸시 알림 중 미보관(is_bookmarked=0) 항목만 자동 청소
+    try {
+      db.execute("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days') AND (is_bookmarked = 0 OR is_bookmarked IS NULL);");
     } catch (e) {}
 
     const resultMap = new Map<string, AppNotificationRaw>();
 
     try {
       const result = db.execute(
-        'SELECT id, package_name, title, text, big_text, raw_content, post_time, created_at FROM app_notifications_raw ORDER BY post_time DESC LIMIT 300;'
+        'SELECT id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at FROM app_notifications_raw ORDER BY post_time DESC LIMIT 300;'
       );
       const rows = result.rows?._array || [];
       rows.forEach((r: any) => {
@@ -54,6 +60,7 @@ export const appNotificationDao = {
           bigText: r.big_text || '',
           rawContent: r.raw_content || '',
           postTime: r.post_time || '',
+          isBookmarked: Boolean(r.is_bookmarked),
           createdAt: r.created_at,
         });
       });
@@ -73,7 +80,7 @@ export const appNotificationDao = {
             list.forEach((item: any) => {
               try {
                 db.execute(
-                  'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time) VALUES (?, ?, ?, ?, ?, ?, ?);',
+                  'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);',
                   [
                     item.id || `${Date.now()}_${Math.random()}`,
                     item.package_name || '',
@@ -94,6 +101,16 @@ export const appNotificationDao = {
     return this.getRecentNotifications();
   },
 
+  toggleBookmark(id: string, isBookmarked: boolean): void {
+    const db = getDb();
+    try {
+      db.execute('UPDATE app_notifications_raw SET is_bookmarked = ? WHERE id = ?;', [
+        isBookmarked ? 1 : 0,
+        id,
+      ]);
+    } catch (e) {}
+  },
+
   deleteNotification(id: string): void {
     const db = getDb();
     try {
@@ -104,7 +121,8 @@ export const appNotificationDao = {
   clearAllNotifications(): void {
     const db = getDb();
     try {
-      db.execute('DELETE FROM app_notifications_raw;');
+      // 보관된 항목(is_bookmarked=1)은 삭제하지 않고 미보관 항목만 삭제
+      db.execute('DELETE FROM app_notifications_raw WHERE is_bookmarked = 0 OR is_bookmarked IS NULL;');
     } catch (e) {}
   },
 };

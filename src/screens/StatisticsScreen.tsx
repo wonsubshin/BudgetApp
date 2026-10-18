@@ -14,7 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { BarChart, LineChart } from 'react-native-gifted-charts';
 import { transactionDao } from '../database/transactionDao';
 import { recurringDao } from '../database/recurringDao';
-import { getNicknameCreatedAt, getManualInstallment } from '../storage/mmkv';
+import { getNicknameCreatedAt, getManualInstallment, getMonthlyBudget } from '../storage/mmkv';
 import { Transaction } from '../types/budget';
 
 dayjs.extend(isSameOrAfter);
@@ -377,6 +377,12 @@ export const StatisticsScreen = () => {
   const yearCardStats = getCardCompanyStatsForYear(selectedYearTab);
   const yearSavingsStats = getSavingsStatsForYear(selectedYearTab);
 
+  // 월별 예산, 사용 금액, 잔액 계산
+  const monthlyBudget = getMonthlyBudget();
+  const monthSpent = monthCardStats.totalMonthExpense;
+  const monthBalance = monthlyBudget - monthSpent;
+  const isUnderBudget = monthBalance >= 0;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* 연도 선택기 (닉네임 설정일 시작 연도 기준 제한) */}
@@ -456,6 +462,39 @@ export const StatisticsScreen = () => {
       {/* 1. 월별 통계 뷰 */}
       {activeTab === 'MONTHLY' && (
         <View>
+          {/* 월별 예산, 사용한 금액, 잔액 요약 카드 */}
+          <View style={styles.budgetSummaryCard}>
+            <Text style={styles.budgetSummaryTitle}>
+              💰 {selectedYear}년 {selectedMonth}월 예산 및 지출 요약
+            </Text>
+
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>목표 예산</Text>
+              <Text style={styles.budgetValue}>{monthlyBudget.toLocaleString()} 원</Text>
+            </View>
+
+            <View style={styles.budgetRow}>
+              <Text style={styles.budgetLabel}>사용한 금액 (총 지출)</Text>
+              <Text style={[styles.budgetValue, { color: '#D32F2F' }]}>
+                {monthSpent.toLocaleString()} 원
+              </Text>
+            </View>
+
+            <View style={[styles.budgetRow, styles.balanceRow]}>
+              <Text style={styles.balanceLabel}>예산 잔액 (남은 금액)</Text>
+              <Text
+                style={[
+                  styles.balanceValue,
+                  isUnderBudget ? { color: '#2E7D32' } : { color: '#D32F2F' },
+                ]}
+              >
+                {isUnderBudget
+                  ? `+${monthBalance.toLocaleString()} 원`
+                  : `-${Math.abs(monthBalance).toLocaleString()} 원`}
+              </Text>
+            </View>
+          </View>
+
           {/* 지출 막대 차트 */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>📊 1~12월 지출 차트 (단위: 만원)</Text>
@@ -820,6 +859,53 @@ const styles = StyleSheet.create({
   },
   activeTabBtnText: {
     color: '#2196F3',
+    fontWeight: 'bold',
+  },
+  /* 예산 요약 카드 */
+  budgetSummaryCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    elevation: 2,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2196F3',
+  },
+  budgetSummaryTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#212121',
+    marginBottom: 12,
+  },
+  budgetRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  balanceRow: {
+    borderBottomWidth: 0,
+    paddingTop: 10,
+    marginTop: 2,
+  },
+  budgetLabel: {
+    fontSize: 13,
+    color: '#616161',
+  },
+  budgetValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#212121',
+  },
+  balanceLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#212121',
+  },
+  balanceValue: {
+    fontSize: 15,
     fontWeight: 'bold',
   },
   card: {
