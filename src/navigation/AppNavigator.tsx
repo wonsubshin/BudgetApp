@@ -1,45 +1,49 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { initDatabase } from '../database/db';
-import { getNickname } from '../storage/mmkv';
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import React, { useEffect, useState } from "react";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { initDatabase } from "../database/db";
+import { getNickname } from "../storage/mmkv";
 
-import { OnboardingScreen } from '../screens/OnboardingScreen';
-import { MainCalendarScreen } from '../screens/MainCalendarScreen';
-import { DailyDetailScreen } from '../screens/DailyDetailScreen';
-import { SettingsScreen } from '../screens/SettingsScreen';
-import { StatisticsScreen } from '../screens/StatisticsScreen';
-import { CustomHolidayScreen } from '../screens/CustomHolidayScreen';
-import { AppNotificationsScreen } from '../screens/AppNotificationsScreen';
-import { ParseExceptionsScreen } from '../screens/ParseExceptionsScreen';
+import { AppNotificationsScreen } from "../screens/AppNotificationsScreen";
+import { CustomHolidayScreen } from "../screens/CustomHolidayScreen";
+import { DailyDetailScreen } from "../screens/DailyDetailScreen";
+import { MainCalendarScreen } from "../screens/MainCalendarScreen";
+import { OnboardingScreen } from "../screens/OnboardingScreen";
+import { ParseExceptionsScreen } from "../screens/ParseExceptionsScreen";
+import { SettingsScreen } from "../screens/SettingsScreen";
+import { StatisticsScreen } from "../screens/StatisticsScreen";
 
 const Stack = createNativeStackNavigator();
 
 function MainTabContainer({ navigation }: any) {
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState<'CALENDAR' | 'STATS' | 'SETTINGS'>('CALENDAR');
+  const [activeTab, setActiveTab] = useState<"CALENDAR" | "STATS" | "SETTINGS">(
+    "CALENDAR",
+  );
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+    <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
       {/* Screen Content */}
       <View style={{ flex: 1 }}>
-        {activeTab === 'CALENDAR' && (
+        {activeTab === "CALENDAR" && (
           <MainCalendarScreen
             onSelectDate={(dateStr: string) =>
-              navigation.navigate('DailyDetail', { dateStr })
+              navigation.navigate("DailyDetail", { dateStr })
             }
-            onOpenSettings={() => setActiveTab('SETTINGS')}
+            onOpenSettings={() => setActiveTab("SETTINGS")}
           />
         )}
-        {activeTab === 'STATS' && <StatisticsScreen />}
-        {activeTab === 'SETTINGS' && (
+        {activeTab === "STATS" && <StatisticsScreen />}
+        {activeTab === "SETTINGS" && (
           <SettingsScreen
             navigation={navigation}
-            onOpenCustomHolidays={() => navigation.navigate('CustomHolidays')}
-            onOpenAppNotifications={() => navigation.navigate('AppNotifications')}
-            onOpenParseExceptions={() => navigation.navigate('ParseExceptions')}
+            onOpenCustomHolidays={() => navigation.navigate("CustomHolidays")}
+            onOpenAppNotifications={() =>
+              navigation.navigate("AppNotifications")
+            }
+            onOpenParseExceptions={() => navigation.navigate("ParseExceptions")}
           />
         )}
       </View>
@@ -56,12 +60,12 @@ function MainTabContainer({ navigation }: any) {
       >
         <TouchableOpacity
           style={styles.tabItem}
-          onPress={() => setActiveTab('CALENDAR')}
+          onPress={() => setActiveTab("CALENDAR")}
         >
           <Text
             style={[
               styles.tabText,
-              activeTab === 'CALENDAR' && styles.activeTabText,
+              activeTab === "CALENDAR" && styles.activeTabText,
             ]}
           >
             📅 달력
@@ -70,12 +74,12 @@ function MainTabContainer({ navigation }: any) {
 
         <TouchableOpacity
           style={styles.tabItem}
-          onPress={() => setActiveTab('STATS')}
+          onPress={() => setActiveTab("STATS")}
         >
           <Text
             style={[
               styles.tabText,
-              activeTab === 'STATS' && styles.activeTabText,
+              activeTab === "STATS" && styles.activeTabText,
             ]}
           >
             📊 통계
@@ -84,12 +88,12 @@ function MainTabContainer({ navigation }: any) {
 
         <TouchableOpacity
           style={styles.tabItem}
-          onPress={() => setActiveTab('SETTINGS')}
+          onPress={() => setActiveTab("SETTINGS")}
         >
           <Text
             style={[
               styles.tabText,
-              activeTab === 'SETTINGS' && styles.activeTabText,
+              activeTab === "SETTINGS" && styles.activeTabText,
             ]}
           >
             ⚙️ 설정
@@ -101,36 +105,20 @@ function MainTabContainer({ navigation }: any) {
 }
 
 export const AppNavigator = () => {
-  const [hasNickname, setHasNickname] = useState<boolean>(() => {
-    try {
-      return Boolean(getNickname());
-    } catch (e) {
-      return false;
-    }
-  });
-  const [isReady, setIsReady] = useState(false);
+  const [hasNickname, setHasNickname] = useState<boolean | null>(null);
 
   useEffect(() => {
     try {
       initDatabase();
     } catch (e) {
-      console.warn('Database initialization warning:', e);
+      console.warn("Database initialization warning:", e);
     }
-
-    try {
-      const name = getNickname();
-      setHasNickname(Boolean(name));
-    } catch (e) {}
-
-    setIsReady(true);
+    const name = getNickname();
+    setHasNickname(Boolean(name));
   }, []);
 
-  if (!isReady) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#2196F3" />
-      </View>
-    );
+  if (hasNickname === null) {
+    return null; // 로딩 상태
   }
 
   return (
@@ -151,27 +139,27 @@ export const AppNavigator = () => {
         <Stack.Screen
           name="DailyDetail"
           component={DailyDetailScreen}
-          options={{ headerShown: true, title: '일별 지출 상세' }}
+          options={{ headerShown: true, title: "일별 지출 상세" }}
         />
         <Stack.Screen
           name="Settings"
           component={SettingsScreen}
-          options={{ headerShown: true, title: '⚙️ 환경 설정' }}
+          options={{ headerShown: true, title: "⚙️ 환경 설정" }}
         />
         <Stack.Screen
           name="CustomHolidays"
           component={CustomHolidayScreen}
-          options={{ headerShown: true, title: '📅 임시공휴일 관리' }}
+          options={{ headerShown: true, title: "📅 임시공휴일 관리" }}
         />
         <Stack.Screen
           name="AppNotifications"
           component={AppNotificationsScreen}
-          options={{ headerShown: true, title: '📨 수신된 앱 푸시 원문 로그' }}
+          options={{ headerShown: true, title: "📨 수신된 앱 푸시 원문 로그" }}
         />
         <Stack.Screen
           name="ParseExceptions"
           component={ParseExceptionsScreen}
-          options={{ headerShown: true, title: '🚫 파싱 예외 문구 관리' }}
+          options={{ headerShown: true, title: "🚫 파싱 예외 문구 관리" }}
         />
       </Stack.Navigator>
     </NavigationContainer>
@@ -180,24 +168,24 @@ export const AppNavigator = () => {
 
 const styles = StyleSheet.create({
   tabBar: {
-    flexDirection: 'row',
+    flexDirection: "row",
     borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    backgroundColor: '#FFFFFF',
+    borderTopColor: "#E0E0E0",
+    backgroundColor: "#FFFFFF",
     elevation: 8,
   },
   tabItem: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   tabText: {
     fontSize: 13,
-    color: '#757575',
-    fontWeight: '500',
+    color: "#757575",
+    fontWeight: "500",
   },
   activeTabText: {
-    color: '#2196F3',
-    fontWeight: 'bold',
+    color: "#2196F3",
+    fontWeight: "bold",
   },
 });

@@ -39,6 +39,11 @@ export const appNotificationDao = {
       db.execute('ALTER TABLE app_notifications_raw ADD COLUMN is_bookmarked BOOLEAN DEFAULT 0;');
     } catch (e) {}
 
+    // com.android.systemui 원천 소제
+    try {
+      db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';");
+    } catch (e) {}
+
     // 1달 이상 된 오래된 푸시 알림 중 미보관(is_bookmarked=0) 항목만 자동 청소
     try {
       db.execute("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days') AND (is_bookmarked = 0 OR is_bookmarked IS NULL);");
@@ -48,7 +53,7 @@ export const appNotificationDao = {
 
     try {
       const result = db.execute(
-        'SELECT id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at FROM app_notifications_raw ORDER BY post_time DESC LIMIT 300;'
+        "SELECT id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at FROM app_notifications_raw WHERE package_name != 'com.android.systemui' ORDER BY post_time DESC LIMIT 300;"
       );
       const rows = result.rows?._array || [];
       rows.forEach((r: any) => {
@@ -78,12 +83,15 @@ export const appNotificationDao = {
           const list = JSON.parse(rawJsonStr);
           if (Array.isArray(list)) {
             list.forEach((item: any) => {
+              const pkg = item.package_name || item.packageName || '';
+              if (pkg === 'com.android.systemui') return;
+
               try {
                 db.execute(
                   'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);',
                   [
                     item.id || `${Date.now()}_${Math.random()}`,
-                    item.package_name || '',
+                    pkg,
                     item.title || '',
                     item.text || '',
                     item.big_text || '',

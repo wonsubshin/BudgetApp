@@ -43,6 +43,10 @@ class AppNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val sbnObj = sbn ?: return
         val packageName = sbnObj.packageName ?: ""
+
+        // com.android.systemui 발신 앱은 수집에서 즉시 원천 제외
+        if (packageName == "com.android.systemui") return
+
         val extras = sbnObj.notification.extras
         val title = extras.getCharSequence("android.title")?.toString() ?: ""
         val text = extras.getCharSequence("android.text")?.toString() ?: ""
@@ -81,6 +85,9 @@ class AppNotificationListener : NotificationListenerService() {
         fullContent: String,
         postTimeMs: Long
     ) {
+        // com.android.systemui 발신 앱 수집 제외
+        if (packageName == "com.android.systemui") return
+
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val postTimeStr = sdf.format(Date(if (postTimeMs > 0) postTimeMs else System.currentTimeMillis()))
         val id = "${postTimeMs}_${(1000..9999).random()}"
@@ -135,15 +142,19 @@ class AppNotificationListener : NotificationListenerService() {
                             "big_text TEXT, " +
                             "raw_content TEXT NOT NULL, " +
                             "post_time TEXT NOT NULL, " +
+                            "is_bookmarked BOOLEAN DEFAULT 0, " +
                             "created_at TEXT DEFAULT CURRENT_TIMESTAMP);"
                 )
 
+                // com.android.systemui 노티피케이션 로그 즉시 정제 삭제
+                db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';")
+
                 db.execSQL(
-                    "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                    "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);",
                     arrayOf(id, packageName, title, text, bigText, fullContent, postTimeStr)
                 )
 
-                db.execSQL("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days');")
+                db.execSQL("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days') AND (is_bookmarked = 0 OR is_bookmarked IS NULL);")
                 db.close()
             } catch (e: Exception) {
                 android.util.Log.e("AppNotificationListener", "SQLite write error on ${dbPath.absolutePath}: ${e.message}")
@@ -184,8 +195,12 @@ class AppNotificationListener : NotificationListenerService() {
                 val endTime = cal.timeInMillis
 
                 for (sbn in activeNotifs) {
-                    val postTime = sbn.postTime
                     val packageName = sbn.packageName ?: ""
+
+                    // com.android.systemui 수집 제외
+                    if (packageName == "com.android.systemui") continue
+
+                    val postTime = sbn.postTime
                     val extras = sbn.notification.extras
                     val title = extras.getCharSequence("android.title")?.toString() ?: ""
                     val text = extras.getCharSequence("android.text")?.toString() ?: ""

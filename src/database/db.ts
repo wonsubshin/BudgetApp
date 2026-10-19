@@ -1,32 +1,24 @@
-import { open, QuickSQLiteConnection } from 'react-native-quick-sqlite';
+import { open, QuickSQLiteConnection } from "react-native-quick-sqlite";
 
 let dbInstance: QuickSQLiteConnection | null = null;
 
-export const resetDbConnection = (): void => {
+export const getDb = (): QuickSQLiteConnection => {
   try {
-    if (dbInstance) {
-      dbInstance.close?.();
+    if (!dbInstance) {
+      dbInstance = open({ name: "budget_app.db" });
+    } else {
+      // 앱이 백그라운드에서 오랫동안 장시간 방치 후 복귀 시 C++ DB 핸들 유효성 헬스체크
+      dbInstance.execute("SELECT 1;");
     }
   } catch (e) {
-    // Ignore
-  } finally {
-    dbInstance = null;
-  }
-};
-
-export const getDb = (): QuickSQLiteConnection => {
-  if (!dbInstance) {
+    console.warn(
+      "⚠️ SQLite DB 핸들이 닫혔거나 무효화되어 재오픈을 시도합니다:",
+      e,
+    );
     try {
-      dbInstance = open({ name: 'budget_app.db' });
-    } catch (e) {
-      console.warn('⚠️ SQLite DB 핸들 오픈 실패, 재시도합니다:', e);
-      resetDbConnection();
-      try {
-        dbInstance = open({ name: 'budget_app.db' });
-      } catch (err) {
-        console.error('Fatal DB Open Error:', err);
-        throw err;
-      }
+      dbInstance = open({ name: "budget_app.db" });
+    } catch (err) {
+      console.error("Fatal DB Open Error:", err);
     }
   }
   return dbInstance!;
@@ -112,52 +104,74 @@ export const initDatabase = (): void => {
 
     // 초기 예외 키워드 시드 세팅 ('광고', 'q.samsungcard.com', '네이버페이', '결제금액', '드렸어요', '5일간')
     try {
-      db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('1', '광고', 1, 1);`);
-      db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('2', 'q.samsungcard.com', 1, 1);`);
-      db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('3', '네이버페이', 1, 0);`);
-      db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('4', '결제금액', 1, 1);`);
-      db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('5', '드렸어요', 1, 1);`);
-      db.execute(`INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('6', '5일간', 1, 1);`);
-      db.execute(`UPDATE parse_exceptions SET apply_sms = 0 WHERE keyword = '네이버페이';`);
+      db.execute(
+        `INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('1', '광고', 1, 1);`,
+      );
+      db.execute(
+        `INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('2', 'q.samsungcard.com', 1, 1);`,
+      );
+      db.execute(
+        `INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('3', '네이버페이', 1, 0);`,
+      );
+      db.execute(
+        `INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('4', '결제금액', 1, 1);`,
+      );
+      db.execute(
+        `INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('5', '드렸어요', 1, 1);`,
+      );
+      db.execute(
+        `INSERT OR IGNORE INTO parse_exceptions (id, keyword, apply_push, apply_sms) VALUES ('6', '5일간', 1, 1);`,
+      );
+      db.execute(
+        `UPDATE parse_exceptions SET apply_sms = 0 WHERE keyword = '네이버페이';`,
+      );
     } catch (e) {}
 
     // 기존 설치 기기 컬럼 마이그레이션
     try {
-      db.execute('ALTER TABLE transactions ADD COLUMN card_company TEXT;');
+      db.execute("ALTER TABLE transactions ADD COLUMN card_company TEXT;");
     } catch (e) {}
 
     try {
-      db.execute('ALTER TABLE recurring_rules ADD COLUMN card_company TEXT;');
+      db.execute("ALTER TABLE recurring_rules ADD COLUMN card_company TEXT;");
     } catch (e) {}
 
     try {
-      db.execute('ALTER TABLE recurring_rules ADD COLUMN is_daily BOOLEAN DEFAULT 0;');
+      db.execute(
+        "ALTER TABLE recurring_rules ADD COLUMN is_daily BOOLEAN DEFAULT 0;",
+      );
     } catch (e) {}
 
     try {
-      db.execute('ALTER TABLE recurring_rules ADD COLUMN start_date TEXT;');
+      db.execute("ALTER TABLE recurring_rules ADD COLUMN start_date TEXT;");
     } catch (e) {}
 
     try {
-      db.execute('ALTER TABLE recurring_rules ADD COLUMN repeat_type TEXT;');
+      db.execute("ALTER TABLE recurring_rules ADD COLUMN repeat_type TEXT;");
     } catch (e) {}
 
     try {
-      db.execute('ALTER TABLE recurring_rules ADD COLUMN days_of_week TEXT;');
+      db.execute("ALTER TABLE recurring_rules ADD COLUMN days_of_week TEXT;");
     } catch (e) {}
 
     try {
-      db.execute('ALTER TABLE parse_exceptions ADD COLUMN apply_push BOOLEAN DEFAULT 1;');
+      db.execute(
+        "ALTER TABLE parse_exceptions ADD COLUMN apply_push BOOLEAN DEFAULT 1;",
+      );
     } catch (e) {}
 
     try {
-      db.execute('ALTER TABLE parse_exceptions ADD COLUMN apply_sms BOOLEAN DEFAULT 1;');
+      db.execute(
+        "ALTER TABLE parse_exceptions ADD COLUMN apply_sms BOOLEAN DEFAULT 1;",
+      );
     } catch (e) {}
 
     try {
-      db.execute('ALTER TABLE app_notifications_raw ADD COLUMN is_bookmarked BOOLEAN DEFAULT 0;');
+      db.execute(
+        "ALTER TABLE app_notifications_raw ADD COLUMN is_bookmarked BOOLEAN DEFAULT 0;",
+      );
     } catch (e) {}
   } catch (fatal) {
-    console.error('Database Initialization Fatal Error:', fatal);
+    console.error("Database Initialization Fatal Error:", fatal);
   }
 };
