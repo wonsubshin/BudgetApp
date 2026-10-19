@@ -40,12 +40,21 @@ class AppNotificationListener : NotificationListenerService() {
         }
     }
 
+    private fun isExcludedAppNotification(packageName: String, fullContent: String): Boolean {
+        val pkgLower = packageName.lowercase(Locale.getDefault())
+        if (packageName == "com.android.systemui") return true
+
+        // 발신 앱이 toss 관련이고 내용에 '걸음' 또는 '만보기'가 포함된 경우 수집 원천 제외
+        if (pkgLower.contains("toss") && (fullContent.contains("걸음") || fullContent.contains("만보기"))) {
+            return true
+        }
+
+        return false
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         val sbnObj = sbn ?: return
         val packageName = sbnObj.packageName ?: ""
-
-        // com.android.systemui 발신 앱은 수집에서 즉시 원천 제외
-        if (packageName == "com.android.systemui") return
 
         val extras = sbnObj.notification.extras
         val title = extras.getCharSequence("android.title")?.toString() ?: ""
@@ -54,6 +63,9 @@ class AppNotificationListener : NotificationListenerService() {
         val fullContent = "$title\n$text\n$bigText".trim()
 
         if (fullContent.isBlank()) return
+
+        // systemui 및 toss 걸음 수 알림 수집 즉시 원천 제외
+        if (isExcludedAppNotification(packageName, fullContent)) return
 
         // 1. 수신된 모든 앱 푸시 원문을 파일 버퍼 & 로컬 SQLite DB(app_notifications_raw)에 이중 보관
         saveRawNotification(packageName, title, text, bigText, fullContent, sbnObj.postTime)
@@ -85,8 +97,7 @@ class AppNotificationListener : NotificationListenerService() {
         fullContent: String,
         postTimeMs: Long
     ) {
-        // com.android.systemui 발신 앱 수집 제외
-        if (packageName == "com.android.systemui") return
+        if (isExcludedAppNotification(packageName, fullContent)) return
 
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val postTimeStr = sdf.format(Date(if (postTimeMs > 0) postTimeMs else System.currentTimeMillis()))
@@ -146,8 +157,9 @@ class AppNotificationListener : NotificationListenerService() {
                             "created_at TEXT DEFAULT CURRENT_TIMESTAMP);"
                 )
 
-                // com.android.systemui 노티피케이션 로그 즉시 정제 삭제
+                // com.android.systemui 및 toss 걸음 수 노티피케이션 로그 즉시 정제 삭제
                 db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';")
+                db.execSQL("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%') AND (raw_content LIKE '%걸음%' OR raw_content LIKE '%만보기%');")
 
                 db.execSQL(
                     "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);",
@@ -197,9 +209,6 @@ class AppNotificationListener : NotificationListenerService() {
                 for (sbn in activeNotifs) {
                     val packageName = sbn.packageName ?: ""
 
-                    // com.android.systemui 수집 제외
-                    if (packageName == "com.android.systemui") continue
-
                     val postTime = sbn.postTime
                     val extras = sbn.notification.extras
                     val title = extras.getCharSequence("android.title")?.toString() ?: ""
@@ -208,6 +217,9 @@ class AppNotificationListener : NotificationListenerService() {
                     val fullContent = "$title\n$text\n$bigText".trim()
 
                     if (fullContent.isNotBlank()) {
+                        // systemui 및 toss 걸음 수 알림 제외
+                        if (listener.isExcludedAppNotification(packageName, fullContent)) continue
+
                         // 수신함 결제 내역 실시간 동기화 실행 시 무조건 현재 떠 있는 모든 알림 목록을 보관
                         listener.saveRawNotification(
                             packageName,

@@ -44,6 +44,11 @@ export const appNotificationDao = {
       db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';");
     } catch (e) {}
 
+    // toss 걸음 수 알림 원천 소제
+    try {
+      db.execute("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%') AND (raw_content LIKE '%걸음%' OR raw_content LIKE '%만보기%');");
+    } catch (e) {}
+
     // 1달 이상 된 오래된 푸시 알림 중 미보관(is_bookmarked=0) 항목만 자동 청소
     try {
       db.execute("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days') AND (is_bookmarked = 0 OR is_bookmarked IS NULL);");
@@ -53,7 +58,7 @@ export const appNotificationDao = {
 
     try {
       const result = db.execute(
-        "SELECT id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at FROM app_notifications_raw WHERE package_name != 'com.android.systemui' ORDER BY post_time DESC LIMIT 300;"
+        "SELECT id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at FROM app_notifications_raw WHERE package_name != 'com.android.systemui' AND NOT (LOWER(package_name) LIKE '%toss%' AND (raw_content LIKE '%걸음%' OR raw_content LIKE '%만보기%')) ORDER BY post_time DESC LIMIT 300;"
       );
       const rows = result.rows?._array || [];
       rows.forEach((r: any) => {
@@ -83,8 +88,11 @@ export const appNotificationDao = {
           const list = JSON.parse(rawJsonStr);
           if (Array.isArray(list)) {
             list.forEach((item: any) => {
-              const pkg = item.package_name || item.packageName || '';
+              const pkg = (item.package_name || item.packageName || '').toLowerCase();
+              const content = item.raw_content || item.rawContent || '';
+
               if (pkg === 'com.android.systemui') return;
+              if (pkg.includes('toss') && (content.includes('걸음') || content.includes('만보기'))) return;
 
               try {
                 db.execute(
