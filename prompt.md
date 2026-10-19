@@ -83,27 +83,67 @@
 
 ---
 
-### [3] 요청 작업 순서 (Phase별 구현)
+### [4] 프로젝트 구현 히스토리 및 개발자 가이드 (Agent 작업 핸드북)
 
-1. **Phase 1: 아키텍처 및 DB 스키마 설계**
-   - 전체 디렉터리 구조 (`src/screens`, `src/database`, `src/services`, `src/utils`, `android/...`).
-   - SQLite DDL 정의 (`transactions`, `recurring_rules`, `holidays`).
+이 섹션은 지금까지 수행된 주요 아키텍처 개편, 스키마 마이그레이션, 버그 해결 내역을 정리하여 **새로운 AI 에이전트가 이 프로젝트를 즉시 이해하고 작업을 이어받을 수 있도록 기술**되었습니다.
 
-2. **Phase 2: 공휴일 동기화 및 핵심 유틸리티 로직 구현**
-   - 한국천문연구원 특일 정보 API 클라이언트 및 SQLite 동기화 모듈 (`holidayService.ts`).
-   - SQLite `holidays` 기반 주말/공휴일 판별 및 다음 영업일 롤오버 함수 (`getNextBusinessDay(date, category)`).
-   - 일일 예산 및 잔여 예산 계산기 (`calculateDailyBudget`, 소수점 버림 처리).
+#### 1. 기술 스택 및 서명 키스토어
+- **프레임워크**: React Native CLI 0.73.6 + TypeScript
+- **데이터베이스 영속성**:
+  - `react-native-mmkv`: 닉네임, 한 달 목표 예산, 수동 할부 기입금액 등 Key-Value 저장.
+  - `react-native-quick-sqlite`: C++ WAL 모드가 적용된 로컬 SQLite DB (`budget_app.db`).
+- **Release APK 빌드 서명**:
+  - 키스토어 경로: `android/app/my-release-key.keystore`
+  - 별칭(`keyAlias`): `my-key-alias`
+  - 비밀번호(`storePassword` / `keyPassword`): `!dnjstjq83`
+  - 빌드 명령어: `node scripts/run-build.js window assembleRelease`
 
-3. **Phase 3: 화면 컴포넌트 개발**
-   - 온보딩 닉네임 진입 제어 화면.
-   - 메인 달력 화면 (월간/주간 전환, 초록/빨강 상태 표시, 잔여 예산 배너).
-   - 일별 상세 CRUD 모달/화면 (현금 선택 시 일시불 고정 로직 포함).
-   - 설정 화면 (예산 설정, 정기 결제 관리, 공휴일 동기화 및 임시공휴일 수동 관리).
-   - 통계 화면 (월별/연도별 그래프).
+#### 2. SQLite 로컬 DB 스키마 (`budget_app.db`)
+- `transactions`: ID, 날짜(`YYYY-MM-DD`), 구분(`EXPENSE`|`SAVINGS`), 금액, 가맹점(`merchant`), 지불유형(`CARD`|`CASH`), 카드사명, 할부유형(`LUMP_SUM`|`INSTALLMENT`), 할부개월수, 정기결제여부, 등록일시.
+- `recurring_rules`: ID, 설정일자, 매일여부, 반복유형(`DAILY`|`MONTHLY_DAY`|`WEEKLY_DAYS`), 요일배열JSON, 시작일자, 구분, 금액, 가맹점, 지불유형, 카드사명, 할부유형.
+- `holidays`: 날짜(`locdate`), 공휴일명, 공휴일여부, 커스텀여부, 수정일시.
+- `app_notifications_raw`: ID, 패키지명, 알림제목, 알림본문, 펼침본문, 원문전체(`raw_content`), 수신시각(`post_time`), 보관여부(`is_bookmarked`), 등록일시.
+- `parse_exceptions`: ID, 예외단어(`keyword`), PUSH적용여부(`apply_push`), SMS적용여부(`apply_sms`), 등록일시.
 
-4. **Phase 4: 안드로이드 네이티브 브릿지 및 설정**
-   - `AndroidManifest.xml` 필수 권한 명시 (`RECEIVE_SMS`, `BIND_NOTIFICATION_LISTENER_SERVICE` 등).
-   - Kotlin 기반 `SmsReceiver` 및 `NotificationListener` 서비스 코드 작성.
-   - React Native 브릿지 이벤트 전달 처리.
+#### 3. 핵심 모듈 및 파이프라인 구조
+- **파싱 엔진 (`FinancialTextParser.kt`)**:
+  - 삼성 RCS 채팅+ JSON 구조(`open_rich_card` Layout) 자동 추출 및 SMS/MMS/푸시 텍스트 통합 파싱.
+  - 마케팅 문구(`"드렸어요"`, `"혜택"`, `"쿠폰"`, `"결제예정"`, `"명세서"`, `"이용대금"`) 원천 제외.
+  - 결제 취소건(`"취소"`, `"승인취소"`, `"결제취소"`, `"매출취소"`) 자동 감지: 금액을 음수(`-amount`)로 차감 변환하고 가맹점 앞에 `"[취소] "` 태그 부여.
+  - 가맹점 명칭 정제: 상호명 끝에 붙은 접미사 `"원"`(예: `제이엔에스(주)원` ➔ `제이엔에스(주)`) 스마트 제거 및 시각 패턴(`20:55`, `21:26`)이 가맹점으로 잘못 인식되는 현상 완전 방지.
+- **백그라운드 푸시 리스너 (`AppNotificationListener.kt`)**:
+  - Android `NotificationListenerService` 기반 푸시 알림 수신.
+  - 파일 버퍼(`filesDir/app_notifications_buffer.json`) 및 SQLite DB(`app_notifications_raw`) 이중 보관.
+  - `com.android.systemui` 및 Toss 만보기/걸음 수 알림(`"toss" + "걸음"|"만보기"`) 수집 원천 제외 및 DB 자동 소제.
+- **수신함 문자 동기화 (`SmsHistoryParserModule.kt`)**:
+  - 삼성 RCS 저장소(`content://im/rcs_read_im`), SMS 수신함(`content://sms/inbox`), MMS 저장소(`content://mms`) 탐색.
+  - 50건 페이징 컨트롤러 및 항목 클릭 시 원문 상세 POPUP 모달 출력.
+- **백업 및 복구 (`backupService.ts`)**:
+  - 백업 파일명: `backup_YYYYMMDDhhmmss.txt` (클립보드 복사는 제거, Android Scoped Storage `MediaStore.Downloads` API로 Download 폴더에만 직접 파일 저장).
+  - 복구: 안드로이드 서류 탐색기(`SmsHistoryParserModule.pickBackupFileAndRead()`)를 이용한 파일 업로드 선택 복구. (JSON 텍스트 붙여넣기 영역은 제거됨).
+  - 백업 파일 수록 항목: 사용자 설정, 거래 내역, 정기 결제, 커스텀 공휴일, 수동 할부금, **수신된 앱 푸시 원문 로그 전체(`rawAppNotifications`)**.
 
-Phase 1의 디렉터리 구성과 SQLite DB 스키마 정의부터 순서대로 시작해 주세요.
+#### 4. UI 및 레이아웃 제약조건
+- **월간 달력 셀 배치 (`MainCalendarScreen.tsx`)**:
+  - 날짜 숫자 아래 **상단 1줄은 [지출 영역]**, **하단 2줄은 [적금/저축 영역]**으로 위치 고정(`slotRow`).
+  - 지출이 없는 날짜도 상단 1줄을 빈 슬롯(공백)으로 유지하여 저축 금액이 위로 치우치지 않음.
+  - 고액 금액(백만 원 이상)은 `100만`, `1.0억` 축약 포맷팅과 `adjustsFontSizeToFit` 자동 폰트 스케일링을 적용하여 셀 안에서 `...` 잘림이 발생하지 않음.
+- **푸시 알림 로그 화면 (`AppNotificationsScreen.tsx`)**:
+  - 상단에 **`🔍 알림 내용 또는 앱 명칭 검색...`** 실시간 검색창 지원.
+  - 각 행에 **`[📌 보관]` 체크박스** 탑재: 보관 체크된 항목은 `[전체 비우기]` 또는 30일 자정 자동 청소 시에도 삭제되지 않고 영구 보관됨.
+  - 한 화면 50건 페이징 지원 및 상단에 안드로이드 `알림 접근 허용` 설정 바로가기 배너 표시.
+- **지출 통계 화면 (`StatisticsScreen.tsx`)**:
+  - `월별 지출 추이` 탭 상단에 **`💰 예산 및 지출 요약 카드`** 표시 (목표 예산, 사용한 금액, 남은 예산 잔액 실시간 자동 계산).
+
+#### 5. 절대 준수 수칙 (CRITICAL MANDATORY RULES FOR ALL AGENTS)
+1. **정밀 최소 편집 (Surgical Edit Only)**:
+   사용자가 지정하고 요청한 기능/파일 이외의 **기존 정상 동작 코드를 절대로 원복하거나 수정하지 마십시오.**
+2. **사이드 이펙트 무조건 차단**:
+   - `parse_exceptions` 또는 정기 결제 내역 추가/수정 시, `applySms = false`인 예외 단어(예: `"네이버페이"`)를 DB에서 일괄 삭제하지 마십시오.
+   - `loadExceptions` 등 화면 진입 시 DB 거래 이력을 함부로 `DELETE` 하지 마십시오.
+3. **쉘 파일 수정 금지**:
+   파일 수정 시 반드시 `write_file`, `replace_file_content`, `multi_replace_file_content` 도구만 사용하고 `sed`나 `cat` 등 쉘 편집을 절대 사용하지 마십시오.
+4. **익일(다음날) 재실행 안정성 보장**:
+   - C++ SQLite 핸들은 `getDb()` 내부에서 `SELECT 1;` 헬스체크 및 자동 재연결(Re-open)을 수행해야 합니다.
+   - `AppState` 포그라운드 복귀 이벤트를 수신하여 안전하게 DB 및 UI 상태를 갱신해야 합니다.
+   - 루트 컴포넌트(`App.tsx`)는 `ErrorBoundary`로 래핑되어 있어 어떠한 예외 상황에서도 검은 화면 멈춤이 발생하지 않아야 합니다.

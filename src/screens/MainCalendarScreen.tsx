@@ -4,6 +4,8 @@ import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
+  AppState,
+  AppStateStatus,
   DeviceEventEmitter,
   Pressable,
   ScrollView,
@@ -251,6 +253,22 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
     });
     return () => sub.remove();
   }, [loadCalendarData]);
+
+  // 익일(자정 경과 후) 백그라운드에서 복귀 시 오늘 날짜 및 캘린더 동기화
+  useEffect(() => {
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      if (nextState === "active") {
+        const todayYm = dayjs().format("YYYY-MM");
+        if (currentYearMonth !== todayYm) {
+          setCurrentYearMonth(todayYm);
+        }
+        setSelectedWeekDate(dayjs());
+        loadCalendarData();
+      }
+    };
+    const sub = AppState.addEventListener("change", handleAppStateChange);
+    return () => sub.remove();
+  }, [loadCalendarData, currentYearMonth]);
 
   const handleToggleViewMode = (mode: ViewMode) => {
     setMode(mode);

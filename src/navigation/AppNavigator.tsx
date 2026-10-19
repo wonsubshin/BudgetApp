@@ -105,7 +105,13 @@ function MainTabContainer({ navigation }: any) {
 }
 
 export const AppNavigator = () => {
-  const [hasNickname, setHasNickname] = useState<boolean | null>(null);
+  const [hasNickname, setHasNickname] = useState<boolean>(() => {
+    try {
+      return Boolean(getNickname());
+    } catch (e) {
+      return false;
+    }
+  });
 
   useEffect(() => {
     try {
@@ -113,13 +119,11 @@ export const AppNavigator = () => {
     } catch (e) {
       console.warn("Database initialization warning:", e);
     }
-    const name = getNickname();
-    setHasNickname(Boolean(name));
+    try {
+      const name = getNickname();
+      setHasNickname(Boolean(name));
+    } catch (e) {}
   }, []);
-
-  if (hasNickname === null) {
-    return null; // 로딩 상태
-  }
 
   return (
     <NavigationContainer>

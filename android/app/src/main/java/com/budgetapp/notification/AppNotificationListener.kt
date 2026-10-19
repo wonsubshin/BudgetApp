@@ -131,46 +131,40 @@ class AppNotificationListener : NotificationListenerService() {
             android.util.Log.e("AppNotificationListener", "Buffer write error: ${e.message}")
         }
 
-        // 2. React Native(filesDir/budget_app.db) 및 Android(databases/budget_app.db) 양쪽 SQLite에 모두 저장
-        val targetDbPaths = listOf(
-            File(filesDir, "budget_app.db"),
-            getDatabasePath("budget_app.db")
-        )
+        // 2. Android 네이티브 전용 DB(databases/budget_app.db)에만 안전하게 백업 저장
+        // (filesDir/budget_app.db는 React Native QuickSQLite C++ 전용이므로 데드락/WAL 충돌 방지를 위해 네이티브 Java에서 직접 열지 않음)
+        try {
+            val dbPath = getDatabasePath("budget_app.db")
+            dbPath.parentFile?.mkdirs()
+            val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            db.execSQL("PRAGMA busy_timeout = 3000;")
 
-        for (dbPath in targetDbPaths) {
-            try {
-                dbPath.parentFile?.mkdirs()
-                val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
-                try { db.enableWriteAheadLogging() } catch (e: Exception) {}
-                db.execSQL("PRAGMA busy_timeout = 3000;")
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS app_notifications_raw (" +
+                        "id TEXT PRIMARY KEY NOT NULL, " +
+                        "package_name TEXT NOT NULL, " +
+                        "title TEXT, " +
+                        "text TEXT, " +
+                        "big_text TEXT, " +
+                        "raw_content TEXT NOT NULL, " +
+                        "post_time TEXT NOT NULL, " +
+                        "is_bookmarked BOOLEAN DEFAULT 0, " +
+                        "created_at TEXT DEFAULT CURRENT_TIMESTAMP);"
+            )
 
-                db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS app_notifications_raw (" +
-                            "id TEXT PRIMARY KEY NOT NULL, " +
-                            "package_name TEXT NOT NULL, " +
-                            "title TEXT, " +
-                            "text TEXT, " +
-                            "big_text TEXT, " +
-                            "raw_content TEXT NOT NULL, " +
-                            "post_time TEXT NOT NULL, " +
-                            "is_bookmarked BOOLEAN DEFAULT 0, " +
-                            "created_at TEXT DEFAULT CURRENT_TIMESTAMP);"
-                )
+            // com.android.systemui 및 toss 걸음 수 노티피케이션 로그 즉시 정제 삭제
+            db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';")
+            db.execSQL("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%') AND (raw_content LIKE '%걸음%' OR raw_content LIKE '%만보기%');")
 
-                // com.android.systemui 및 toss 걸음 수 노티피케이션 로그 즉시 정제 삭제
-                db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';")
-                db.execSQL("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%') AND (raw_content LIKE '%걸음%' OR raw_content LIKE '%만보기%');")
+            db.execSQL(
+                "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);",
+                arrayOf(id, packageName, title, text, bigText, fullContent, postTimeStr)
+            )
 
-                db.execSQL(
-                    "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);",
-                    arrayOf(id, packageName, title, text, bigText, fullContent, postTimeStr)
-                )
-
-                db.execSQL("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days') AND (is_bookmarked = 0 OR is_bookmarked IS NULL);")
-                db.close()
-            } catch (e: Exception) {
-                android.util.Log.e("AppNotificationListener", "SQLite write error on ${dbPath.absolutePath}: ${e.message}")
-            }
+            db.execSQL("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days') AND (is_bookmarked = 0 OR is_bookmarked IS NULL);")
+            db.close()
+        } catch (e: Exception) {
+            android.util.Log.e("AppNotificationListener", "SQLite write error on databases/budget_app.db: ${e.message}")
         }
     }
 

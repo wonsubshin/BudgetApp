@@ -2,26 +2,28 @@ import { open, QuickSQLiteConnection } from "react-native-quick-sqlite";
 
 let dbInstance: QuickSQLiteConnection | null = null;
 
+export const resetDbConnection = (): QuickSQLiteConnection => {
+  try {
+    if (dbInstance) {
+      try {
+        dbInstance.close();
+      } catch (e) {}
+    }
+  } catch (e) {}
+  dbInstance = open({ name: "budget_app.db" });
+  return dbInstance;
+};
+
 export const getDb = (): QuickSQLiteConnection => {
   try {
     if (!dbInstance) {
       dbInstance = open({ name: "budget_app.db" });
-    } else {
-      // 앱이 백그라운드에서 오랫동안 장시간 방치 후 복귀 시 C++ DB 핸들 유효성 헬스체크
-      dbInstance.execute("SELECT 1;");
     }
+    return dbInstance;
   } catch (e) {
-    console.warn(
-      "⚠️ SQLite DB 핸들이 닫혔거나 무효화되어 재오픈을 시도합니다:",
-      e,
-    );
-    try {
-      dbInstance = open({ name: "budget_app.db" });
-    } catch (err) {
-      console.error("Fatal DB Open Error:", err);
-    }
+    console.warn("⚠️ SQLite DB 오픈 오류, 재연결을 시도합니다:", e);
+    return resetDbConnection();
   }
-  return dbInstance!;
 };
 
 export const initDatabase = (): void => {
