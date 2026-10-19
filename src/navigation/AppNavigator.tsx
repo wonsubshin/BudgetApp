@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -101,7 +101,14 @@ function MainTabContainer({ navigation }: any) {
 }
 
 export const AppNavigator = () => {
-  const [hasNickname, setHasNickname] = useState<boolean | null>(null);
+  const [hasNickname, setHasNickname] = useState<boolean>(() => {
+    try {
+      return Boolean(getNickname());
+    } catch (e) {
+      return false;
+    }
+  });
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     try {
@@ -109,12 +116,21 @@ export const AppNavigator = () => {
     } catch (e) {
       console.warn('Database initialization warning:', e);
     }
-    const name = getNickname();
-    setHasNickname(Boolean(name));
+
+    try {
+      const name = getNickname();
+      setHasNickname(Boolean(name));
+    } catch (e) {}
+
+    setIsReady(true);
   }, []);
 
-  if (hasNickname === null) {
-    return null; // 로딩 상태
+  if (!isReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#2196F3" />
+      </View>
+    );
   }
 
   return (

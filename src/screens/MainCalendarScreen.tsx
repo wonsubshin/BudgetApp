@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, ScrollView, Pressable, TextInput, Alert, DeviceEventEmitter } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, ScrollView, Pressable, TextInput, Alert, DeviceEventEmitter, AppState, AppStateStatus } from 'react-native';
 import { Calendar, LocaleConfig } from 'react-native-calendars';
 import { useFocusEffect } from '@react-navigation/native';
 import dayjs from 'dayjs';
@@ -225,6 +225,18 @@ export const MainCalendarScreen: React.FC<MainCalendarScreenProps> = ({
       loadCalendarData();
     });
     return () => sub.remove();
+  }, [loadCalendarData]);
+
+  // 앱이 백그라운드에서 하룻밤을 보낸 뒤 다음날 포그라운드로 복귀했을 때 날짜 및 데이터 갱신
+  useEffect(() => {
+    const handleAppState = (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        setSelectedWeekDate(dayjs());
+        loadCalendarData();
+      }
+    };
+    const appStateSub = AppState.addEventListener('change', handleAppState);
+    return () => appStateSub.remove();
   }, [loadCalendarData]);
 
   const handleToggleViewMode = (mode: ViewMode) => {

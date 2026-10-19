@@ -30,24 +30,34 @@ class FinancialParserModule(reactContext: ReactApplicationContext) :
             installmentMonths: Int,
             createdAtStr: String? = null
         ) {
-            val params: WritableMap = Arguments.createMap().apply {
-                putString("date", dateStr)
-                putInt("amount", amount)
-                putString("merchant", merchant)
-                putString("paymentType", paymentType)
-                if (cardCompany != null) {
-                    putString("cardCompany", cardCompany)
+            try {
+                val context = companionContext ?: return
+                if (!context.hasActiveReactInstance()) {
+                    android.util.Log.w("FinancialParserModule", "React instance is not active. Skipping event emission to prevent crash.")
+                    return
                 }
-                putString("installmentType", installmentType)
-                putInt("installmentMonths", installmentMonths)
-                if (createdAtStr != null) {
-                    putString("createdAt", createdAtStr)
-                }
-            }
 
-            companionContext
-                ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                ?.emit("onPaymentParsed", params)
+                val params: WritableMap = Arguments.createMap().apply {
+                    putString("date", dateStr)
+                    putInt("amount", amount)
+                    putString("merchant", merchant)
+                    putString("paymentType", paymentType)
+                    if (cardCompany != null) {
+                        putString("cardCompany", cardCompany)
+                    }
+                    putString("installmentType", installmentType)
+                    putInt("installmentMonths", installmentMonths)
+                    if (createdAtStr != null) {
+                        putString("createdAt", createdAtStr)
+                    }
+                }
+
+                context
+                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    ?.emit("onPaymentParsed", params)
+            } catch (e: Throwable) {
+                android.util.Log.e("FinancialParserModule", "Safely caught payment emit error to prevent app crash: ${e.message}", e)
+            }
         }
     }
 }

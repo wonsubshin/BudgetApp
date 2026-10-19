@@ -3,12 +3,20 @@ import { CategoryType } from '../types/budget';
 import { holidayDao } from '../database/holidayDao';
 
 export const isWeekend = (dateStr: string): boolean => {
-  const day = dayjs(dateStr).day();
-  return day === 0 || day === 6; // 0: 일요일, 6: 토요일
+  try {
+    const day = dayjs(dateStr).day();
+    return day === 0 || day === 6; // 0: 일요일, 6: 토요일
+  } catch (e) {
+    return false;
+  }
 };
 
 export const isHoliday = (dateStr: string): boolean => {
-  return holidayDao.isHoliday(dateStr);
+  try {
+    return holidayDao.isHoliday(dateStr);
+  } catch (e) {
+    return false;
+  }
 };
 
 export const isRedDay = (dateStr: string): boolean => {
@@ -24,9 +32,15 @@ export const getNextBusinessDay = (
   }
 
   let current = dayjs(dateStr);
+  let maxLoop = 0;
 
-  while (isRedDay(current.format('YYYY-MM-DD'))) {
-    current = current.add(1, 'day');
+  try {
+    while (isRedDay(current.format('YYYY-MM-DD')) && maxLoop < 14) {
+      current = current.add(1, 'day');
+      maxLoop++;
+    }
+  } catch (e) {
+    return dateStr;
   }
 
   return current.format('YYYY-MM-DD');
