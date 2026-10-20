@@ -154,7 +154,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // 탐색기에서 백업 파일 선택 및 자동 업로드 복구
+  // 탐색기에서 백업 파일 선택 및 자동 업로드 복구 (1순위 백업 DB 복원 -> 2순위 수신함 신규 결제건 기록)
   const handlePickFileAndRestore = async () => {
     try {
       if (SmsHistoryParserModule && typeof SmsHistoryParserModule.pickBackupFileAndRead === 'function') {
@@ -164,11 +164,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           return;
         }
 
-        const result = backupService.restoreFromBackupJson(fileContent.trim());
+        setIsSyncing(true);
+        const result = await backupService.restoreAndSyncInbox(fileContent.trim());
+        setIsSyncing(false);
+
         if (result.success) {
           setRestoreModalVisible(false);
           loadSettingsData();
-          Alert.alert('복구 성공', result.message);
+          Alert.alert('복구 및 신규 동기화 완료', result.message);
         } else {
           Alert.alert('복구 실패', result.message);
         }
@@ -176,6 +179,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         Alert.alert('알림', '파일 탐색기를 열 수 없습니다.');
       }
     } catch (e: any) {
+      setIsSyncing(false);
       if (e?.code !== 'PICK_CANCELLED') {
         Alert.alert('오류', e?.message || '파일을 읽는 중 오류가 발생했습니다.');
       }

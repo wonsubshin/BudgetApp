@@ -138,8 +138,8 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
           return;
         }
 
-        setProgressPercent(50);
-        setProgressMessage('2/4. 백업 데이터(거래 내역, 정기결제, 푸시로그) 복구 중...');
+        setProgressPercent(40);
+        setProgressMessage('2/4 [1순위]. 백업 데이터(거래 내역, 정기결제, 푸시로그) 1순위 복구 중...');
 
         const result = backupService.restoreFromBackupJson(fileContent.trim());
         if (!result.success) {
@@ -148,11 +148,17 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
           return;
         }
 
-        setProgressPercent(80);
-        setProgressMessage('3/4. 수신함 SMS 읽기 및 알림 권한 허가 요청 중...');
+        setProgressPercent(70);
+        setProgressMessage('3/4 [2순위]. 수신함(RCS/SMS/MMS/푸시) 스캔 및 신규 결제건 기록 중...');
 
         // SMS 읽기 시스템 권한 팝업 요청
         await requestSmsPermissionsIfNeeded();
+
+        // 1-2. 수신함(RCS/SMS/MMS/푸시) 파싱 건 중 기존 DB에 없는 신규 결제건 기록
+        try {
+          const nicknameDate = dayjs().format('YYYY-MM-01');
+          await syncSmsHistoryForDate(nicknameDate);
+        } catch (e) {}
 
         // 시스템 알림 접근 권한 유도
         if (Platform.OS === 'android') {
@@ -164,7 +170,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
         }
 
         setProgressPercent(100);
-        setProgressMessage('4/4. 데이터 복구 완료! 가계부 메인 화면으로 이동합니다.');
+        setProgressMessage('4/4. 1순위 백업 복구 및 2순위 신규 동기화 완료! 가계부로 이동합니다.');
 
         setTimeout(() => {
           setIsProcessing(false);

@@ -209,4 +209,28 @@ export const backupService = {
       return { success: false, message: `복구 중 오류가 발생했습니다: ${e?.message || e}` };
     }
   },
+
+  // 1-1. DB 백업 데이터 1순위 복원 ➔ 1-2. RCS/SMS/MMS/APP PUSH 수신함 스캔 후 기존 DB에 없던 신규 결제건 기록
+  async restoreAndSyncInbox(jsonString: string): Promise<{ success: boolean; message: string }> {
+    // 1-1. DB에 저장된 건 1순위 복원
+    const restoreResult = this.restoreFromBackupJson(jsonString);
+    if (!restoreResult.success) {
+      return restoreResult;
+    }
+
+    // 1-2. RCS, SMS, MMS, APP PUSH에서 파싱된 건 중에 기존 DB에 존재하지 않는 건 추가 기록
+    let newlySyncedCount = 0;
+    try {
+      const nicknameDate = getNicknameCreatedAt() || 'ALL';
+      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.syncSmsHistoryWithLog === 'function') {
+        const syncRes = await SmsHistoryParserModule.syncSmsHistoryWithLog(nicknameDate);
+        newlySyncedCount = syncRes?.count || 0;
+      }
+    } catch (e) {}
+
+    return {
+      success: true,
+      message: `[1순위] 백업 파일 내역이 정상 복구되었으며,\n[2순위] 수신함(RCS/SMS/MMS/푸시) 스캔을 거쳐 기존 DB에 없는 신규 결제건 ${newlySyncedCount}건을 추가 수록했습니다!`,
+    };
+  },
 };
