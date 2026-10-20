@@ -39,14 +39,13 @@ export const appNotificationDao = {
       db.execute('ALTER TABLE app_notifications_raw ADD COLUMN is_bookmarked BOOLEAN DEFAULT 0;');
     } catch (e) {}
 
-    // com.android.systemui 원천 소제
+    // 무효 앱 푸시 일괄 정제 소제 실행
     try {
       db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';");
-    } catch (e) {}
-
-    // toss 걸음 수 알림 원천 소제
-    try {
-      db.execute("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%') AND (raw_content LIKE '%걸음%' OR raw_content LIKE '%만보기%');");
+      db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.google.android.apps.youtube.music';");
+      db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.vending';");
+      db.execute("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%' OR LOWER(package_name) LIKE '%kakaopay%') AND (title LIKE '%걸음%' OR raw_content LIKE '%걸음%' OR title LIKE '%만보기%');");
+      db.execute("DELETE FROM app_notifications_raw WHERE LOWER(package_name) LIKE '%toss%' AND (title LIKE '%악성%' OR raw_content LIKE '%악성%');");
     } catch (e) {}
 
     // 1달 이상 된 오래된 푸시 알림 중 미보관(is_bookmarked=0) 항목만 자동 청소
@@ -57,8 +56,9 @@ export const appNotificationDao = {
     const resultMap = new Map<string, AppNotificationRaw>();
 
     try {
+      // 300건 제한을 해제하고 저장된 전체 푸시 이력을 가져옵니다.
       const result = db.execute(
-        "SELECT id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at FROM app_notifications_raw WHERE package_name != 'com.android.systemui' AND NOT (LOWER(package_name) LIKE '%toss%' AND (raw_content LIKE '%걸음%' OR raw_content LIKE '%만보기%')) ORDER BY post_time DESC LIMIT 300;"
+        "SELECT id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at FROM app_notifications_raw WHERE package_name != 'com.android.systemui' AND package_name != 'com.google.android.apps.youtube.music' AND package_name != 'com.android.vending' ORDER BY post_time DESC;"
       );
       const rows = result.rows?._array || [];
       rows.forEach((r: any) => {
@@ -90,9 +90,13 @@ export const appNotificationDao = {
             list.forEach((item: any) => {
               const pkg = (item.package_name || item.packageName || '').toLowerCase();
               const content = item.raw_content || item.rawContent || '';
+              const title = item.title || '';
 
               if (pkg === 'com.android.systemui') return;
-              if (pkg.includes('toss') && (content.includes('걸음') || content.includes('만보기'))) return;
+              if (pkg === 'com.google.android.apps.youtube.music') return;
+              if (pkg === 'com.android.vending') return;
+              if ((pkg.includes('toss') || pkg.includes('kakaopay')) && (title.includes('걸음') || content.includes('걸음') || title.includes('만보기'))) return;
+              if (pkg.includes('toss') && (title.includes('악성') || content.includes('악성'))) return;
 
               try {
                 db.execute(
@@ -100,10 +104,10 @@ export const appNotificationDao = {
                   [
                     item.id || `${Date.now()}_${Math.random()}`,
                     pkg,
-                    item.title || '',
+                    title,
                     item.text || '',
                     item.big_text || '',
-                    item.raw_content || '',
+                    content,
                     item.post_time || '',
                   ]
                 );

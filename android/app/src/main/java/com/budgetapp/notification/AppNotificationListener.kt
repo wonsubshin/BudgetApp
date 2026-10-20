@@ -40,12 +40,25 @@ class AppNotificationListener : NotificationListenerService() {
         }
     }
 
-    private fun isExcludedAppNotification(packageName: String, fullContent: String): Boolean {
+    private fun isExcludedAppNotification(packageName: String, title: String, fullContent: String): Boolean {
         val pkgLower = packageName.lowercase(Locale.getDefault())
+
+        // 1. systemui 수집 제외
         if (packageName == "com.android.systemui") return true
 
-        // 발신 앱이 toss 관련이고 내용에 '걸음' 또는 '만보기'가 포함된 경우 수집 원천 제외
-        if (pkgLower.contains("toss") && (fullContent.contains("걸음") || fullContent.contains("만보기"))) {
+        // 2. YouTube Music (com.google.android.apps.youtube.music) 수집 제외
+        if (packageName == "com.google.android.apps.youtube.music") return true
+
+        // 3. Google Play 스토어 (com.android.vending) 수집 제외
+        if (packageName == "com.android.vending") return true
+
+        // 4. Toss / KakaoPay (com.kakaopay.app) 걸음 수 알림 수집 제외
+        if ((pkgLower.contains("toss") || pkgLower.contains("kakaopay")) && (title.contains("걸음") || fullContent.contains("걸음") || title.contains("만보기"))) {
+            return true
+        }
+
+        // 5. Toss (viva.republica.toss) 악성 앱 경고 알림 수집 제외
+        if (pkgLower.contains("toss") && (title.contains("악성") || fullContent.contains("악성"))) {
             return true
         }
 
@@ -64,8 +77,8 @@ class AppNotificationListener : NotificationListenerService() {
 
         if (fullContent.isBlank()) return
 
-        // systemui 및 toss 걸음 수 알림 수집 즉시 원천 제외
-        if (isExcludedAppNotification(packageName, fullContent)) return
+        // 제외 대상 앱 알림 수집 즉시 원천 스킵
+        if (isExcludedAppNotification(packageName, title, fullContent)) return
 
         // 1. 수신된 모든 앱 푸시 원문을 파일 버퍼 & 로컬 SQLite DB(app_notifications_raw)에 이중 보관
         saveRawNotification(packageName, title, text, bigText, fullContent, sbnObj.postTime)
@@ -97,13 +110,13 @@ class AppNotificationListener : NotificationListenerService() {
         fullContent: String,
         postTimeMs: Long
     ) {
-        if (isExcludedAppNotification(packageName, fullContent)) return
+        if (isExcludedAppNotification(packageName, title, fullContent)) return
 
         val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val postTimeStr = sdf.format(Date(if (postTimeMs > 0) postTimeMs else System.currentTimeMillis()))
         val id = "${postTimeMs}_${(1000..9999).random()}"
 
-        // 1. JSON 파일 버퍼에 100% 보장 저장 (DB 락 발생 시 백업 수단)
+        // 1. JSON 파일 버퍼에 100% 보장 저장
         try {
             val bufferFile = File(filesDir, "app_notifications_buffer.json")
             val jsonArray = if (bufferFile.exists()) {
@@ -123,7 +136,7 @@ class AppNotificationListener : NotificationListenerService() {
             }
 
             jsonArray.put(item)
-            while (jsonArray.length() > 300) {
+            while (jsonArray.length() > 2000) {
                 jsonArray.remove(0)
             }
             bufferFile.writeText(jsonArray.toString())
@@ -131,40 +144,66 @@ class AppNotificationListener : NotificationListenerService() {
             android.util.Log.e("AppNotificationListener", "Buffer write error: ${e.message}")
         }
 
-        // 2. Android 네이티브 전용 DB(databases/budget_app.db)에만 안전하게 백업 저장
-        // (filesDir/budget_app.db는 React Native QuickSQLite C++ 전용이므로 데드락/WAL 충돌 방지를 위해 네이티브 Java에서 직접 열지 않음)
-        try {
-            val dbPath = getDatabasePath("budget_app.db")
-            dbPath.parentFile?.mkdirs()
-            val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
-            db.execSQL("PRAGMA busy_timeout = 3000;")
+        // 2. React Native(filesDir/budget_app.db) 및 Android(databases/budget_app.db) 양쪽 SQLite에 모두 저장
+        val targetDbPaths = listOf(
+            File(filesDir, "budget_app.db"),
+            getDatabasePath("budget_app.db")
+        )
 
-            db.execSQL(
-                "CREATE TABLE IF NOT EXISTS app_notifications_raw (" +
-                        "id TEXT PRIMARY KEY NOT NULL, " +
-                        "package_name TEXT NOT NULL, " +
-                        "title TEXT, " +
-                        "text TEXT, " +
-                        "big_text TEXT, " +
-                        "raw_content TEXT NOT NULL, " +
-                        "post_time TEXT NOT NULL, " +
-                        "is_bookmarked BOOLEAN DEFAULT 0, " +
-                        "created_at TEXT DEFAULT CURRENT_TIMESTAMP);"
-            )
+        for (dbPath in targetDbPaths) {
+            try {
+                dbPath.parentFile?.mkdirs()
+                val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+                try { db.enableWriteAheadLogging() } catch (e: Exception) {}
+                db.execSQL("PRAGMA busy_timeout = 3000;")
 
-            // com.android.systemui 및 toss 걸음 수 노티피케이션 로그 즉시 정제 삭제
-            db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';")
-            db.execSQL("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%') AND (raw_content LIKE '%걸음%' OR raw_content LIKE '%만보기%');")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS app_notifications_raw (" +
+                            "id TEXT PRIMARY KEY NOT NULL, " +
+                            "package_name TEXT NOT NULL, " +
+                            "title TEXT, " +
+                            "text TEXT, " +
+                            "big_text TEXT, " +
+                            "raw_content TEXT NOT NULL, " +
+                            "post_time TEXT NOT NULL, " +
+                            "is_bookmarked BOOLEAN DEFAULT 0, " +
+                            "created_at TEXT DEFAULT CURRENT_TIMESTAMP);"
+                )
 
-            db.execSQL(
-                "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);",
-                arrayOf(id, packageName, title, text, bigText, fullContent, postTimeStr)
-            )
+                // 무효 푸시 로그 즉시 정제 삭제
+                db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';")
+                db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.google.android.apps.youtube.music';")
+                db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.vending';")
+                db.execSQL("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%' OR LOWER(package_name) LIKE '%kakaopay%') AND (title LIKE '%걸음%' OR raw_content LIKE '%걸음%' OR title LIKE '%만보기%');")
+                db.execSQL("DELETE FROM app_notifications_raw WHERE LOWER(package_name) LIKE '%toss%' AND (title LIKE '%악성%' OR raw_content LIKE '%악성%');")
 
-            db.execSQL("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days') AND (is_bookmarked = 0 OR is_bookmarked IS NULL);")
-            db.close()
-        } catch (e: Exception) {
-            android.util.Log.e("AppNotificationListener", "SQLite write error on databases/budget_app.db: ${e.message}")
+                // 7. 발신 앱 + 동일 postTime 일자(YYYY-MM-DD) + 동일 title 문구 중복 수집 제외 처리
+                val datePart = if (postTimeStr.length >= 10) postTimeStr.substring(0, 10) else postTimeStr
+                var isDup = false
+                if (title.isNotBlank()) {
+                    val cursor = db.rawQuery(
+                        "SELECT COUNT(*) FROM app_notifications_raw WHERE package_name = ? AND title = ? AND substr(post_time, 1, 10) = ? LIMIT 1;",
+                        arrayOf(packageName, title, datePart)
+                    )
+                    cursor?.use {
+                        if (it.moveToNext()) {
+                            isDup = it.getInt(0) > 0
+                        }
+                    }
+                }
+
+                if (!isDup) {
+                    db.execSQL(
+                        "INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);",
+                        arrayOf(id, packageName, title, text, bigText, fullContent, postTimeStr)
+                    )
+                }
+
+                db.execSQL("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days') AND (is_bookmarked = 0 OR is_bookmarked IS NULL);")
+                db.close()
+            } catch (e: Exception) {
+                android.util.Log.e("AppNotificationListener", "SQLite write error on ${dbPath.absolutePath}: ${e.message}")
+            }
         }
     }
 
@@ -211,8 +250,8 @@ class AppNotificationListener : NotificationListenerService() {
                     val fullContent = "$title\n$text\n$bigText".trim()
 
                     if (fullContent.isNotBlank()) {
-                        // systemui 및 toss 걸음 수 알림 제외
-                        if (listener.isExcludedAppNotification(packageName, fullContent)) continue
+                        // 제외 대상 앱 푸시 알림 스킵
+                        if (listener.isExcludedAppNotification(packageName, title, fullContent)) continue
 
                         // 수신함 결제 내역 실시간 동기화 실행 시 무조건 현재 떠 있는 모든 알림 목록을 보관
                         listener.saveRawNotification(
