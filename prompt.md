@@ -114,7 +114,7 @@
 - **백그라운드 푸시 리스너 (`AppNotificationListener.kt`)**:
   - Android `NotificationListenerService` 기반 푸시 알림 수신.
   - 파일 버퍼(`filesDir/app_notifications_buffer.json`) 및 SQLite DB(`app_notifications_raw`) 이중 보관.
-  - `com.android.systemui` 및 Toss 만보기/걸음 수 알림(`"toss" + "걸음"|"만보기"`) 수집 원천 제외 및 DB 자동 소제.
+  - `com.android.systemui`, YouTube Music, 구글 플레이 스토어, 카카오페이/토스 걸음 수 만보기, 토스 악성 앱 경고 수집 원천 제외 및 DB 자동 소제.
 - **수신함 문자 동기화 (`SmsHistoryParserModule.kt`)**:
   - 삼성 RCS 저장소(`content://im/rcs_read_im`), SMS 수신함(`content://sms/inbox`), MMS 저장소(`content://mms`) 탐색.
   - 50건 페이징 컨트롤러 및 항목 클릭 시 원문 상세 POPUP 모달 출력.
@@ -147,3 +147,23 @@
    - C++ SQLite 핸들은 `getDb()` 내부에서 `SELECT 1;` 헬스체크 및 자동 재연결(Re-open)을 수행해야 합니다.
    - `AppState` 포그라운드 복귀 이벤트를 수신하여 안전하게 DB 및 UI 상태를 갱신해야 합니다.
    - 루트 컴포넌트(`App.tsx`)는 `ErrorBoundary`로 래핑되어 있어 어떠한 예외 상황에서도 검은 화면 멈춤이 발생하지 않아야 합니다.
+
+---
+
+### [5] 기능 변경/추가/삭제 실시간 기록 수칙 (Live Change History Rule)
+
+**★ 중요 원칙**: 모든 AI 에이전트는 사용자의 요청으로 기능이 추가, 수정, 삭제되거나 최적화가 수행될 때마다 **이 [5]번 섹션에 해당 내역을 즉시 기록 업데이트**해야 합니다.
+
+#### 1. 앱 푸시 로그 수집 필터링 및 이력 조회 최신 변경사항 (2026-10 반영 완료)
+- **푸시 로그 전체 조회 개부**:
+  - 기존 300건 제한(`LIMIT 300`)을 완전히 해제하여 30일 이내에 저장된 **전체 푸시 알림을 50건 페이징 컨트롤러**로 모두 조회할 수 있도록 변경.
+- **현대카드 푸시 저장 보완**:
+  - 현대카드(`com.hyundaicard.appcard`) 수신 알림이 React Native QuickSQLite DB 경로(`filesDir/budget_app.db`) 및 Android 네이티브 경로 양쪽에 이중 보관되어 100% 저장/노출되도록 보완.
+- **무효 앱 푸시 수집 원천 제외 & 기존 DB 이력 소제**:
+  1. `com.android.systemui`: 시스템 알림 제외.
+  2. `com.google.android.apps.youtube.music`: 유튜브 뮤직 재생 알림 제외.
+  3. `com.android.vending`: 구글 플레이 스토어 앱 업데이트 알림 제외.
+  4. `kakaopay` + `"걸음"` / `"만보기"`: 카카오페이 만보기 알림 제외.
+  5. `viva.republica.toss` + `"악성 앱"` / `"악성앱"` / `"악성"`: 토스 보안 경고 알림 제외.
+- **동일 앱 당일 중복 푸시 수집 차단**:
+  - 동일 발신 앱(`package_name`), 동일 postTime 일자(`YYYY-MM-DD`), 동일 제목(`title`)이 기존 DB에 수록되어 있으면 중복 수집을 원천 스킵 처리.
