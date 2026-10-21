@@ -114,7 +114,7 @@
 - **백그라운드 푸시 리스너 (`AppNotificationListener.kt`)**:
   - Android `NotificationListenerService` 기반 푸시 알림 수신.
   - 파일 버퍼(`filesDir/app_notifications_buffer.json`) 및 SQLite DB(`app_notifications_raw`) 이중 보관.
-  - `com.android.systemui`, YouTube Music, 구글 플레이 스토어, 카카오페이/토스 걸음 수 만보기, 토스 악성 앱 경고 수집 원천 제외 및 DB 자동 소제.
+  - `com.android.systemui`, YouTube Music, 구글 플레이 스토어, LGU+ AI통화비서, android 플레이오, 카카오페이/토스 걸음 수 만보기, 토스 악성 앱 경고 수집 원천 제외 및 DB 자동 소제.
 - **수신함 문자 동기화 (`SmsHistoryParserModule.kt`)**:
   - 삼성 RCS 저장소(`content://im/rcs_read_im`), SMS 수신함(`content://sms/inbox`), MMS 저장소(`content://mms`) 탐색.
   - 50건 페이징 컨트롤러 및 항목 클릭 시 원문 상세 POPUP 모달 출력.
@@ -163,8 +163,10 @@
   1. `com.android.systemui`: 시스템 알림 제외.
   2. `com.google.android.apps.youtube.music`: 유튜브 뮤직 재생 알림 제외.
   3. `com.android.vending`: 구글 플레이 스토어 앱 업데이트 알림 제외.
-  4. `kakaopay` + `"걸음"` / `"만보기"`: 카카오페이 만보기 알림 제외.
-  5. `viva.republica.toss` + `"악성 앱"` / `"악성앱"` / `"악성"`: 토스 보안 경고 알림 제외.
+  4. `com.lguplus.aicallagent`: LGU+ AI통화비서 알림 수집 제외 & DB 소제.
+  5. `android` + `"플레이오"`: android 시스템 알림 중 '플레이오' 포함 알림 수집 제외 & DB 소제.
+  6. `kakaopay` + `"걸음"` / `"만보기"`: 카카오페이 만보기 알림 제외.
+  7. `viva.republica.toss` + `"악성 앱"` / `"악성앱"` / `"악성"`: 토스 보안 경고 알림 제외.
 - **동일 앱 당일 중복 푸시 수집 차단**:
   - 동일 발신 앱(`package_name`), 동일 postTime 일자(`YYYY-MM-DD`), 동일 제목(`title`)이 기존 DB에 수록되어 있으면 중복 수집을 원천 스킵 처리.
 

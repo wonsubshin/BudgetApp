@@ -52,12 +52,18 @@ class AppNotificationListener : NotificationListenerService() {
         // 3. Google Play 스토어 (com.android.vending) 수집 제외
         if (packageName == "com.android.vending") return true
 
-        // 4. Toss / KakaoPay (com.kakaopay.app) 걸음 수 알림 수집 제외
+        // 4. LGU+ AI통화비서 (com.lguplus.aicallagent) 수집 제외
+        if (packageName == "com.lguplus.aicallagent") return true
+
+        // 5. android 발신 앱 중 알림 제목/내용에 '플레이오' 포함 수집 제외
+        if (packageName == "android" && (title.contains("플레이오") || fullContent.contains("플레이오"))) return true
+
+        // 6. Toss / KakaoPay (com.kakaopay.app) 걸음 수 알림 수집 제외
         if ((pkgLower.contains("toss") || pkgLower.contains("kakaopay")) && (title.contains("걸음") || fullContent.contains("걸음") || title.contains("만보기"))) {
             return true
         }
 
-        // 5. Toss (viva.republica.toss) 악성 앱 경고 알림 수집 제외
+        // 7. Toss (viva.republica.toss) 악성 앱 경고 알림 수집 제외
         if (pkgLower.contains("toss") && (title.contains("악성") || fullContent.contains("악성"))) {
             return true
         }
@@ -174,10 +180,12 @@ class AppNotificationListener : NotificationListenerService() {
                 db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';")
                 db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.google.android.apps.youtube.music';")
                 db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.vending';")
+                db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'com.lguplus.aicallagent';")
+                db.execSQL("DELETE FROM app_notifications_raw WHERE package_name = 'android' AND (title LIKE '%플레이오%' OR raw_content LIKE '%플레이오%');")
                 db.execSQL("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%' OR LOWER(package_name) LIKE '%kakaopay%') AND (title LIKE '%걸음%' OR raw_content LIKE '%걸음%' OR title LIKE '%만보기%');")
                 db.execSQL("DELETE FROM app_notifications_raw WHERE LOWER(package_name) LIKE '%toss%' AND (title LIKE '%악성%' OR raw_content LIKE '%악성%');")
 
-                // 7. 발신 앱 + 동일 postTime 일자(YYYY-MM-DD) + 동일 title 문구 중복 수집 제외 처리
+                // 발신 앱 + 동일 postTime 일자(YYYY-MM-DD) + 동일 title 문구 중복 수집 제외 처리
                 val datePart = if (postTimeStr.length >= 10) postTimeStr.substring(0, 10) else postTimeStr
                 var isDup = false
                 if (title.isNotBlank()) {

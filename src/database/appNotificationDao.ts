@@ -44,6 +44,8 @@ export const appNotificationDao = {
       db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';");
       db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.google.android.apps.youtube.music';");
       db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.vending';");
+      db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.lguplus.aicallagent';");
+      db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'android' AND (title LIKE '%플레이오%' OR raw_content LIKE '%플레이오%');");
       db.execute("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%' OR LOWER(package_name) LIKE '%kakaopay%') AND (title LIKE '%걸음%' OR raw_content LIKE '%걸음%' OR title LIKE '%만보기%');");
       db.execute("DELETE FROM app_notifications_raw WHERE LOWER(package_name) LIKE '%toss%' AND (title LIKE '%악성%' OR raw_content LIKE '%악성%');");
     } catch (e) {}
@@ -56,9 +58,8 @@ export const appNotificationDao = {
     const resultMap = new Map<string, AppNotificationRaw>();
 
     try {
-      // 300건 제한을 해제하고 저장된 전체 푸시 이력을 가져옵니다.
       const result = db.execute(
-        "SELECT id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at FROM app_notifications_raw WHERE package_name != 'com.android.systemui' AND package_name != 'com.google.android.apps.youtube.music' AND package_name != 'com.android.vending' ORDER BY post_time DESC;"
+        "SELECT id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at FROM app_notifications_raw WHERE package_name != 'com.android.systemui' AND package_name != 'com.google.android.apps.youtube.music' AND package_name != 'com.android.vending' AND package_name != 'com.lguplus.aicallagent' AND NOT (package_name = 'android' AND (title LIKE '%플레이오%' OR raw_content LIKE '%플레이오%')) ORDER BY post_time DESC;"
       );
       const rows = result.rows?._array || [];
       rows.forEach((r: any) => {
@@ -95,6 +96,8 @@ export const appNotificationDao = {
               if (pkg === 'com.android.systemui') return;
               if (pkg === 'com.google.android.apps.youtube.music') return;
               if (pkg === 'com.android.vending') return;
+              if (pkg === 'com.lguplus.aicallagent') return;
+              if (pkg === 'android' && (title.includes('플레이오') || content.includes('플레이오'))) return;
               if ((pkg.includes('toss') || pkg.includes('kakaopay')) && (title.includes('걸음') || content.includes('걸음') || title.includes('만보기'))) return;
               if (pkg.includes('toss') && (title.includes('악성') || content.includes('악성'))) return;
 
