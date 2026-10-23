@@ -12,6 +12,8 @@ import {
   Platform,
   Linking,
   TextInput,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import dayjs from 'dayjs';
 import { appNotificationDao, AppNotificationRaw } from '../database/appNotificationDao';
@@ -32,19 +34,30 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
   const pageSize = 50; // 한 화면에 50건씩 페이징 처리
 
   const loadNotifications = useCallback(async () => {
-    // 1. SQLite DB에 기존 저장된 푸시 알림 데이터 1차 로드
-    const list = appNotificationDao.getRecentNotifications();
-    setNotifications(list);
-
-    // 2. 네이티브 백그라운드 파일 버퍼(app_notifications_buffer.json)에 기록된 푸시 알림 로그를 DB로 즉시 수록 동기화
     try {
+      // 1. SQLite DB에 기존 저장된 푸시 알림 데이터 1차 로드
+      const list = appNotificationDao.getRecentNotifications();
+      setNotifications(list || []);
+
+      // 2. 네이티브 백그라운드 파일 버퍼(app_notifications_buffer.json)에 기록된 푸시 알림 로그를 DB로 즉시 수록 동기화
       const updatedList = await appNotificationDao.syncNativeBufferToDb();
-      setNotifications(updatedList);
-    } catch (e) {}
+      setNotifications(updatedList || []);
+    } catch (e) {
+      console.warn('loadNotifications error:', e);
+    }
   }, []);
 
   useEffect(() => {
     loadNotifications();
+
+    // 백그라운드 방치 후 다음날 포그라운드 복귀 시 데이터 안전 재로드
+    const sub = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'active') {
+        loadNotifications();
+      }
+    });
+
+    return () => sub.remove();
   }, [loadNotifications]);
 
   const handleOpenDetail = (item: AppNotificationRaw) => {
@@ -54,18 +67,24 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
 
   const handleCopySingleRaw = () => {
     if (!selectedNotification) return;
-    Clipboard.setString(selectedNotification.rawContent);
-    Alert.alert('복사 완료 📋', '앱 푸시 원문 내용이 클립보드에 복사되었습니다.');
+    try {
+      Clipboard.setString(selectedNotification.rawContent);
+      Alert.alert('복사 완료 📋', '앱 푸시 원문 내용이 클립보드에 복사되었습니다.');
+    } catch (e) {}
   };
 
   const handleToggleBookmark = (id: string, isBookmarked: boolean) => {
-    appNotificationDao.toggleBookmark(id, isBookmarked);
-    loadNotifications();
+    try {
+      appNotificationDao.toggleBookmark(id, isBookmarked);
+      loadNotifications();
+    } catch (e) {}
   };
 
   const handleDelete = (id: string) => {
-    appNotificationDao.deleteNotification(id);
-    loadNotifications();
+    try {
+      appNotificationDao.deleteNotification(id);
+      loadNotifications();
+    } catch (e) {}
   };
 
   const handleClearAll = () => {
@@ -75,8 +94,10 @@ export const AppNotificationsScreen: React.FC<AppNotificationsScreenProps> = ({
         text: '삭제',
         style: 'destructive',
         onPress: () => {
-          appNotificationDao.clearAllNotifications();
-          loadNotifications();
+          try {
+            appNotificationDao.clearAllNotifications();
+            loadNotifications();
+          } catch (e) {}
         },
       },
     ]);

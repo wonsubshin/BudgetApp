@@ -1,5 +1,5 @@
 import { NativeModules } from 'react-native';
-import { getDb } from './db';
+import { safeDbExecute } from './db';
 
 const { SmsHistoryParserModule } = NativeModules;
 
@@ -17,10 +17,8 @@ export interface AppNotificationRaw {
 
 export const appNotificationDao = {
   getRecentNotifications(): AppNotificationRaw[] {
-    const db = getDb();
-
     try {
-      db.execute(`
+      safeDbExecute(`
         CREATE TABLE IF NOT EXISTS app_notifications_raw (
           id TEXT PRIMARY KEY NOT NULL,
           package_name TEXT NOT NULL,
@@ -36,32 +34,32 @@ export const appNotificationDao = {
     } catch (e) {}
 
     try {
-      db.execute('ALTER TABLE app_notifications_raw ADD COLUMN is_bookmarked BOOLEAN DEFAULT 0;');
+      safeDbExecute('ALTER TABLE app_notifications_raw ADD COLUMN is_bookmarked BOOLEAN DEFAULT 0;');
     } catch (e) {}
 
     // 무효 앱 푸시 일괄 정제 소제 실행
     try {
-      db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';");
-      db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.google.android.apps.youtube.music';");
-      db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.vending';");
-      db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'com.lguplus.aicallagent';");
-      db.execute("DELETE FROM app_notifications_raw WHERE package_name = 'android' AND (title LIKE '%플레이오%' OR raw_content LIKE '%플레이오%');");
-      db.execute("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%' OR LOWER(package_name) LIKE '%kakaopay%') AND (title LIKE '%걸음%' OR raw_content LIKE '%걸음%' OR title LIKE '%만보기%');");
-      db.execute("DELETE FROM app_notifications_raw WHERE LOWER(package_name) LIKE '%toss%' AND (title LIKE '%악성%' OR raw_content LIKE '%악성%');");
+      safeDbExecute("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.systemui';");
+      safeDbExecute("DELETE FROM app_notifications_raw WHERE package_name = 'com.google.android.apps.youtube.music';");
+      safeDbExecute("DELETE FROM app_notifications_raw WHERE package_name = 'com.android.vending';");
+      safeDbExecute("DELETE FROM app_notifications_raw WHERE package_name = 'com.lguplus.aicallagent';");
+      safeDbExecute("DELETE FROM app_notifications_raw WHERE package_name = 'android' AND (title LIKE '%플레이오%' OR raw_content LIKE '%플레이오%');");
+      safeDbExecute("DELETE FROM app_notifications_raw WHERE (LOWER(package_name) LIKE '%toss%' OR LOWER(package_name) LIKE '%kakaopay%') AND (title LIKE '%걸음%' OR raw_content LIKE '%걸음%' OR title LIKE '%만보기%');");
+      safeDbExecute("DELETE FROM app_notifications_raw WHERE LOWER(package_name) LIKE '%toss%' AND (title LIKE '%악성%' OR raw_content LIKE '%악성%');");
     } catch (e) {}
 
     // 1달 이상 된 오래된 푸시 알림 중 미보관(is_bookmarked=0) 항목만 자동 청소
     try {
-      db.execute("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days') AND (is_bookmarked = 0 OR is_bookmarked IS NULL);");
+      safeDbExecute("DELETE FROM app_notifications_raw WHERE post_time < datetime('now', '-30 days') AND (is_bookmarked = 0 OR is_bookmarked IS NULL);");
     } catch (e) {}
 
     const resultMap = new Map<string, AppNotificationRaw>();
 
     try {
-      const result = db.execute(
+      const result = safeDbExecute(
         "SELECT id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked, created_at FROM app_notifications_raw WHERE package_name != 'com.android.systemui' AND package_name != 'com.google.android.apps.youtube.music' AND package_name != 'com.android.vending' AND package_name != 'com.lguplus.aicallagent' AND NOT (package_name = 'android' AND (title LIKE '%플레이오%' OR raw_content LIKE '%플레이오%')) ORDER BY post_time DESC;"
       );
-      const rows = result.rows?._array || [];
+      const rows = result?.rows?._array || [];
       rows.forEach((r: any) => {
         resultMap.set(r.id, {
           id: r.id,
@@ -75,13 +73,14 @@ export const appNotificationDao = {
           createdAt: r.created_at,
         });
       });
-    } catch (e) {}
+    } catch (e) {
+      console.warn('getRecentNotifications query error:', e);
+    }
 
     return Array.from(resultMap.values()).sort((a, b) => b.postTime.localeCompare(a.postTime));
   },
 
   async syncNativeBufferToDb(): Promise<AppNotificationRaw[]> {
-    const db = getDb();
     try {
       if (SmsHistoryParserModule && typeof SmsHistoryParserModule.getAppNotificationsBuffer === 'function') {
         const rawJsonStr = await SmsHistoryParserModule.getAppNotificationsBuffer();
@@ -102,7 +101,7 @@ export const appNotificationDao = {
               if (pkg.includes('toss') && (title.includes('악성') || content.includes('악성'))) return;
 
               try {
-                db.execute(
+                safeDbExecute(
                   'INSERT OR IGNORE INTO app_notifications_raw (id, package_name, title, text, big_text, raw_content, post_time, is_bookmarked) VALUES (?, ?, ?, ?, ?, ?, ?, 0);',
                   [
                     item.id || `${Date.now()}_${Math.random()}`,
@@ -119,15 +118,16 @@ export const appNotificationDao = {
           }
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('syncNativeBufferToDb error:', e);
+    }
 
     return this.getRecentNotifications();
   },
 
   toggleBookmark(id: string, isBookmarked: boolean): void {
-    const db = getDb();
     try {
-      db.execute('UPDATE app_notifications_raw SET is_bookmarked = ? WHERE id = ?;', [
+      safeDbExecute('UPDATE app_notifications_raw SET is_bookmarked = ? WHERE id = ?;', [
         isBookmarked ? 1 : 0,
         id,
       ]);
@@ -135,17 +135,15 @@ export const appNotificationDao = {
   },
 
   deleteNotification(id: string): void {
-    const db = getDb();
     try {
-      db.execute('DELETE FROM app_notifications_raw WHERE id = ?;', [id]);
+      safeDbExecute('DELETE FROM app_notifications_raw WHERE id = ?;', [id]);
     } catch (e) {}
   },
 
   clearAllNotifications(): void {
-    const db = getDb();
     try {
       // 보관된 항목(is_bookmarked=1)은 삭제하지 않고 미보관 항목만 삭제
-      db.execute('DELETE FROM app_notifications_raw WHERE is_bookmarked = 0 OR is_bookmarked IS NULL;');
+      safeDbExecute('DELETE FROM app_notifications_raw WHERE is_bookmarked = 0 OR is_bookmarked IS NULL;');
     } catch (e) {}
   },
 };
