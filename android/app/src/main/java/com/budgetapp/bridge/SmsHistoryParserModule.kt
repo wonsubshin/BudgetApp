@@ -77,6 +77,34 @@ class SmsHistoryParserModule(private val reactContext: ReactApplicationContext) 
     }
 
     @ReactMethod
+    fun clearAppNotificationsBuffer(targetId: String, promise: Promise) {
+        try {
+            val bufferFile = File(reactContext.filesDir, "app_notifications_buffer.json")
+            if (bufferFile.exists()) {
+                if (targetId == "CLEAR_ALL") {
+                    bufferFile.writeText("[]")
+                } else {
+                    val rawJson = bufferFile.readText(Charsets.UTF_8)
+                    val jsonArray = org.json.JSONArray(rawJson)
+                    val newArray = org.json.JSONArray()
+
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.optJSONObject(i) ?: continue
+                        val id = obj.optString("id", "")
+                        if (id != targetId) {
+                            newArray.put(obj)
+                        }
+                    }
+                    bufferFile.writeText(newArray.toString())
+                }
+            }
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("BUFFER_CLEAR_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
     fun pickBackupFileAndRead(promise: Promise) {
         val currentActivity = currentActivity
         if (currentActivity == null) {

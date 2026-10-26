@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Modal,
   DeviceEventEmitter,
   Pressable,
+  PanResponder,
 } from 'react-native';
 import dayjs from 'dayjs';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
@@ -20,8 +21,9 @@ import { TransactionModal } from '../components/transaction/TransactionModal';
 
 dayjs.extend(isSameOrAfter);
 
-export const DailyDetailScreen = ({ route }: any) => {
-  const dateStr = route?.params?.dateStr || dayjs().format('YYYY-MM-DD');
+export const DailyDetailScreen = ({ route, navigation }: any) => {
+  const initialDateStr = route?.params?.dateStr || dayjs().format('YYYY-MM-DD');
+  const [currentDateStr, setCurrentDateStr] = useState(initialDateStr);
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
@@ -31,11 +33,43 @@ export const DailyDetailScreen = ({ route }: any) => {
   const [rawModalVisible, setRawModalVisible] = useState(false);
   const [selectedRawTx, setSelectedRawTx] = useState<Transaction | null>(null);
 
+  useEffect(() => {
+    if (route?.params?.dateStr) {
+      setCurrentDateStr(route.params.dateStr);
+    }
+  }, [route?.params?.dateStr]);
+
+  // 좌우 슬라이드(스와이프) 모션 감지: 좌(전날), 우(다음날) 이동
+  const dailyPanResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 40 && Math.abs(gestureState.dy) < 30;
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx < -50) {
+          // 오른쪽에서 왼쪽으로 스와이프 (다음날 이동)
+          const nextDay = dayjs(currentDateStr).add(1, 'day').format('YYYY-MM-DD');
+          setCurrentDateStr(nextDay);
+          if (navigation && typeof navigation.setParams === 'function') {
+            navigation.setParams({ dateStr: nextDay });
+          }
+        } else if (gestureState.dx > 50) {
+          // 왼쪽에서 오른쪽으로 스와이프 (전날 이동)
+          const prevDay = dayjs(currentDateStr).subtract(1, 'day').format('YYYY-MM-DD');
+          setCurrentDateStr(prevDay);
+          if (navigation && typeof navigation.setParams === 'function') {
+            navigation.setParams({ dateStr: prevDay });
+          }
+        }
+      },
+    })
+  ).current;
+
   const loadTransactions = useCallback(() => {
-    const dbList = transactionDao.getTransactionsByDate(dateStr);
+    const dbList = transactionDao.getTransactionsByDate(currentDateStr);
     const recurringRules = recurringDao.getAllRecurringRules();
 
-    const currentMoment = dayjs(dateStr);
+    const currentMoment = dayjs(currentDateStr);
     const yearMonthStr = currentMoment.format('YYYY-MM');
 
     // 정기 결제/적금 항목 중 해당 날짜에 해당되는 항목 추출 (시작일 & 다중 요일 반영)
@@ -46,7 +80,7 @@ export const DailyDetailScreen = ({ route }: any) => {
       const repeatType = rule.repeatType || (rule.isDaily ? 'DAILY' : 'MONTHLY_DAY');
       let appliesToThisDate = false;
 
-      if (dayjs(dateStr).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
+      if (dayjs(currentDateStr).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
         if (repeatType === 'DAILY') {
           if (rule.categoryType === 'EXPENSE') {
             const daysInMonth = currentMoment.daysInMonth();
@@ -54,7 +88,7 @@ export const DailyDetailScreen = ({ route }: any) => {
               const rawDate = `${yearMonthStr}-${String(d).padStart(2, '0')}`;
               if (
                 dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day') &&
-                getNextBusinessDay(rawDate, 'EXPENSE') === dateStr
+                getNextBusinessDay(rawDate, 'EXPENSE') === currentDateStr
               ) {
                 appliesToThisDate = true;
                 break;
@@ -68,11 +102,11 @@ export const DailyDetailScreen = ({ route }: any) => {
             const rawDate = `${yearMonthStr}-${String(rule.dayOfMonth).padStart(2, '0')}`;
             if (dayjs(rawDate).isSameOrAfter(dayjs(ruleStartStr), 'day')) {
               if (rule.categoryType === 'EXPENSE') {
-                if (getNextBusinessDay(rawDate, 'EXPENSE') === dateStr) {
+                if (getNextBusinessDay(rawDate, 'EXPENSE') === currentDateStr) {
                   appliesToThisDate = true;
                 }
               } else {
-                if (rawDate === dateStr) {
+                if (rawDate === currentDateStr) {
                   appliesToThisDate = true;
                 }
               }
@@ -88,12 +122,12 @@ export const DailyDetailScreen = ({ route }: any) => {
               (rule.daysOfWeek || []).includes(dayOfWeek)
             ) {
               if (rule.categoryType === 'EXPENSE') {
-                if (getNextBusinessDay(rawDate, 'EXPENSE') === dateStr) {
+                if (getNextBusinessDay(rawDate, 'EXPENSE') === currentDateStr) {
                   appliesToThisDate = true;
                   break;
                 }
               } else {
-                if (rawDate === dateStr) {
+                if (rawDate === currentDateStr) {
                   appliesToThisDate = true;
                   break;
                 }
@@ -109,8 +143,8 @@ export const DailyDetailScreen = ({ route }: any) => {
         );
         if (!alreadyInDb) {
           activeRecurringItems.push({
-            id: `recurring_${rule.id}_${dateStr}`,
-            date: dateStr,
+            id: `recurring_${rule.id}_${currentDateStr}`,
+            date: currentDateStr,
             categoryType: rule.categoryType,
             amount: rule.amount,
             merchant: rule.merchant,
@@ -125,7 +159,7 @@ export const DailyDetailScreen = ({ route }: any) => {
     });
 
     setTransactions([...dbList, ...activeRecurringItems]);
-  }, [dateStr]);
+  }, [currentDateStr]);
 
   useEffect(() => {
     loadTransactions();
@@ -263,10 +297,27 @@ export const DailyDetailScreen = ({ route }: any) => {
   };
 
   return (
-    <View style={styles.container}>
-      {/* 일별 통합 배너 */}
+    <View style={styles.container} {...dailyPanResponder.panHandlers}>
+      {/* 일별 통합 배너 및 날짜 이동 컨트롤러 */}
       <View style={styles.summaryBanner}>
-        <Text style={styles.dateTitle}>{dateStr} 거래 내역</Text>
+        <View style={styles.dateHeaderRow}>
+          <TouchableOpacity
+            style={styles.dayNavBtn}
+            onPress={() => setCurrentDateStr(dayjs(currentDateStr).subtract(1, 'day').format('YYYY-MM-DD'))}
+          >
+            <Text style={styles.dayNavBtnText}>◀ 전날</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.dateTitle}>{currentDateStr} 거래 내역</Text>
+
+          <TouchableOpacity
+            style={styles.dayNavBtn}
+            onPress={() => setCurrentDateStr(dayjs(currentDateStr).add(1, 'day').format('YYYY-MM-DD'))}
+          >
+            <Text style={styles.dayNavBtnText}>다음날 ▶</Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.summaryRow}>
           <Text style={styles.summaryExpense}>
             총 지출: {totalExpense.toLocaleString()}원
@@ -285,6 +336,7 @@ export const DailyDetailScreen = ({ route }: any) => {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>등록된 거래 내역이 없습니다.</Text>
+            <Text style={styles.swipeGuideText}>💡 화면을 좌우로 스와이프하여 전날/다음날로 바로 이동하실 수 있습니다.</Text>
           </View>
         }
       />
@@ -300,7 +352,7 @@ export const DailyDetailScreen = ({ route }: any) => {
 
       <TransactionModal
         visible={modalVisible}
-        dateStr={dateStr}
+        dateStr={currentDateStr}
         initialData={selectedTx}
         onClose={() => setModalVisible(false)}
         onSave={handleSave}
@@ -362,11 +414,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
   },
+  dateHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  dayNavBtn: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  dayNavBtnText: {
+    fontSize: 12,
+    color: '#1976D2',
+    fontWeight: 'bold',
+  },
   dateTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#212121',
-    marginBottom: 8,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -483,6 +551,12 @@ const styles = StyleSheet.create({
   emptyText: {
     color: '#9E9E9E',
     fontSize: 14,
+  },
+  swipeGuideText: {
+    color: '#1565C0',
+    fontSize: 11,
+    marginTop: 8,
+    textAlign: 'center',
   },
   fab: {
     position: 'absolute',

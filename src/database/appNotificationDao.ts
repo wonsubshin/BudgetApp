@@ -137,6 +137,9 @@ export const appNotificationDao = {
   deleteNotification(id: string): void {
     try {
       safeDbExecute('DELETE FROM app_notifications_raw WHERE id = ?;', [id]);
+      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.clearAppNotificationsBuffer === 'function') {
+        SmsHistoryParserModule.clearAppNotificationsBuffer(id);
+      }
     } catch (e) {}
   },
 
@@ -144,6 +147,9 @@ export const appNotificationDao = {
     try {
       // 보관된 항목(is_bookmarked=1)은 삭제하지 않고 미보관 항목만 삭제
       safeDbExecute('DELETE FROM app_notifications_raw WHERE is_bookmarked = 0 OR is_bookmarked IS NULL;');
+      if (SmsHistoryParserModule && typeof SmsHistoryParserModule.clearAppNotificationsBuffer === 'function') {
+        SmsHistoryParserModule.clearAppNotificationsBuffer('CLEAR_ALL');
+      }
     } catch (e) {}
   },
 };

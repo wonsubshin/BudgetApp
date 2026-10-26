@@ -216,22 +216,40 @@ object FinancialTextParser {
         // 5. 사용처(가맹점) 추출
         var merchant = ""
 
-        // 패턴 A: 날짜/시간이 적힌 줄에서 날짜, 시간, 누적금액, 숫자원 단어를 제외한 단어를 사용처로 추출
-        val lineWithTime = lines.find { it.contains("/") }
-        if (lineWithTime != null) {
-            val parts = lineWithTime.split("\\s+".toRegex())
-            val candidate = parts.lastOrNull { p ->
-                val word = p.trim()
-                word.isNotBlank() &&
-                        !word.contains("/") &&
-                        !Pattern.compile("^[0-9]{1,2}:[0-9]{2}$").matcher(word).matches() &&
-                        !Pattern.compile("^[0-9,,-]+원$").matcher(word).matches() &&
-                        !word.contains("누적") &&
-                        !word.contains("일시불") &&
-                        !word.contains("개월")
+        // 패턴 A-1: 현대카드 전용 특화 패턴 (Line 1 = 승인/금액/날짜, Line 2 = 사용처, Line 3 = 누적)
+        if (cardCompany == "현대카드" || bodyToParse.contains("현대")) {
+            for (i in 0 until lines.size) {
+                val l = lines[i]
+                if (l.contains("승인") || l.contains("취소") || l.contains("이용")) {
+                    if (i + 1 < lines.size) {
+                        val candidateLine = lines[i + 1].trim()
+                        if (candidateLine.isNotBlank() && !candidateLine.contains("누적") && !candidateLine.contains("/")) {
+                            merchant = candidateLine
+                            break
+                        }
+                    }
+                }
             }
-            if (!candidate.isNullOrBlank()) {
-                merchant = candidate
+        }
+
+        // 패턴 A-2: 날짜/시간이 적힌 줄에서 날짜, 시간, 누적금액, 숫자원 단어를 제외한 단어를 사용처로 추출
+        if (merchant.isBlank()) {
+            val lineWithTime = lines.find { it.contains("/") }
+            if (lineWithTime != null) {
+                val parts = lineWithTime.split("\\s+".toRegex())
+                val candidate = parts.lastOrNull { p ->
+                    val word = p.trim()
+                    word.isNotBlank() &&
+                            !word.contains("/") &&
+                            !Pattern.compile("^[0-9]{1,2}:[0-9]{2}$").matcher(word).matches() &&
+                            !Pattern.compile("^[0-9,,-]+원$").matcher(word).matches() &&
+                            !word.contains("누적") &&
+                            !word.contains("일시불") &&
+                            !word.contains("개월")
+                }
+                if (!candidate.isNullOrBlank()) {
+                    merchant = candidate
+                }
             }
         }
 
